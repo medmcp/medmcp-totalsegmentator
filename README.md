@@ -26,10 +26,60 @@ Whole-body anatomy segmentation for the [medmcp](https://github.com/medmcp) ecos
 | `list_task_structures` | Exact structure names a task produces, in label order | `task: str` | Structure list |
 | `find_structures` | Find which tasks produce a named structure | `query: str` | Matching structures → tasks, plus any matches only a non-bundled model could produce |
 
-Segmentation runs in a **subprocess**. TotalSegmentator prints to stdout
-unconditionally, and stdout belongs to the MCP framing — in-process, its banner would
-corrupt the session. It also keeps the server's import free of torch, so tool
-discovery answers in well under a second instead of racing the agent's start-up budget.
+## Available tasks
+
+`segment_anatomy` takes a `task`. `total` and `total_mr` are the general whole-body
+models; the rest are focused models covering anatomy the whole-body models omit, or
+segmenting it more accurately. Ask the agent for a structure by name and it will pick
+the task for you (`find_structures`).
+
+| Task | Modality | Structures | Segments |
+|---|---|---|---|
+| **Whole body** | | | |
+| `total` | CT | 117 | Every major organ, bone, muscle and vessel in one pass — the default |
+| `total_mr` | MR | 50 | The whole-body model for MR images |
+| `body` | CT | 2 | Body outline: trunk, extremities, skin |
+| `body_mr` | MR | 2 | Body outline for MR images |
+| **Spine** | | | |
+| `vertebrae_body` | CT | 2 | Vertebral bodies without the arch, plus intervertebral discs |
+| `vertebrae_pp` | CT | 24 | Individually labelled vertebrae C1–L5; fewer errors than the `total` vertebrae |
+| `vertebrae_pp_refined` | CT | 24 | As `vertebrae_pp`, with sharper borders; slower |
+| `vertebrae_mr` | MR | 25 | Individually labelled vertebrae and sacrum on MR |
+| **Chest** | | | |
+| `lung_vessels` | CT | 4 | Pulmonary arteries, veins, airways and airway walls |
+| `lung_vessels_LEGACY` | CT | 2 | Previous lung vessel model (vessels, trachea/bronchia) |
+| `lung_nodules` | CT | 2 | Lung and lung nodules |
+| `pleural_pericard_effusion` | CT | 3 | Pleural and pericardial effusion |
+| `trunk_cavities` | CT | 4 | Abdominal and thoracic cavity, pericardium, mediastinum |
+| `breasts` | CT | 1 | Breast tissue |
+| **Abdomen** | | | |
+| `liver_segments` | CT | 8 | The eight Couinaud liver segments |
+| `liver_segments_mr` | MR | 8 | Couinaud liver segments on MR |
+| `liver_vessels` | CT | 2 | Liver vessels and liver tumour |
+| `liver_lesions` | CT | 1 | Liver lesions |
+| `liver_lesions_mr` | MR | 1 | Liver lesions on MR |
+| `kidney_cysts` | CT | 2 | Kidney cysts; more accurate than the ones inside `total` |
+| `abdominal_muscles` | CT | 22 | Abdominal and trunk muscle groups (T4–L4 only) |
+| **Head & neck** | | | |
+| `head_glands_cavities` | CT | 19 | Eyes, lenses, optic nerves, salivary glands, pharynx, nasal cavity |
+| `head_muscles` | CT | 11 | Masticatory muscles, tongue, digastric |
+| `headneck_bones_vessels` | CT | 12 | Larynx, hyoid, cartilage, carotid arteries, jugular veins |
+| `headneck_muscles` | CT | 23 | Neck and shoulder-girdle muscles |
+| `craniofacial_structures` | CT | 7 | Mandible, skull, sinuses, upper and lower teeth |
+| `teeth` | CT | 77 | Individual teeth by FDI number, jawbones, canals, implants, crowns |
+| `oculomotor_muscles` | CT | 19 | Extraocular muscles, eyeballs, optic nerves, skull |
+| `cerebral_bleed` | CT | 1 | Intracerebral haemorrhage |
+| `ventricle_parts` | CT | 12 | Ventricle subdivisions (horns, body, trigone) |
+| **Other** | | | |
+| `hip_implant` | CT | 1 | Hip implants |
+
+**Not included.** Some TotalSegmentator models need a licence number and are not part
+of this stack: body-composition tissue types, brain structures, heart chambers,
+coronary arteries, aortic sinuses, appendicular bones, thigh and shoulder muscles, and
+face masking (for anonymisation), plus a brain-aneurysm model restricted to
+non-commercial use. Ask for one of those structures and the agent will tell you which
+model produces it and why it is unavailable here. Licences — free for non-commercial
+use — come from [TotalSegmentator](https://backend.totalsegmentator.com/license-academic/).
 
 ## Skill inventory
 
@@ -47,46 +97,6 @@ Skills are SKILL.md files the agent loads on demand to follow multi-step workflo
 |---|---|---|---|
 | TotalSegmentator | `segment_anatomy` | [upstream](https://github.com/wasserth/TotalSegmentator), weights baked into the image | [Apache-2.0](https://github.com/wasserth/TotalSegmentator/blob/master/LICENSE) |
 | nnU-Net | segmentation engine | [upstream](https://github.com/MIC-DKFZ/nnUNet), dependency | [Apache-2.0](https://github.com/MIC-DKFZ/nnUNet/blob/master/LICENSE) |
-
-### Which tasks are available, and why not all of them
-
-TotalSegmentator's **code** is Apache-2.0, but its **weights are not uniformly so**.
-This stack bundles only the tasks upstream publishes under Apache-2.0 — 31 of them,
-42 weight datasets, ~8.8 GiB — so the image stays redistributable under a single,
-unambiguous license.
-
-Not bundled, and not reachable from the tools:
-
-- **License-gated tasks** (`tissue_types`, `brain_structures`, `face`,
-  `coronary_arteries`, `heartchambers_highres`, `appendicular_bones`, …). Their
-  weights come from the upstream license backend and need a
-  [license number](https://backend.totalsegmentator.com/license-academic/) — free for
-  non-commercial use, paid for commercial use.
-- **`brain_aneurysm`** — CC BY-NC 4.0 with *no* commercial license available. Upstream
-  does not list it in `commercial_models`, so filtering on its `requires_license()`
-  predicate alone would quietly pull a non-commercial model into an Apache-2.0 image.
-  It is excluded by name.
-- **`total_v3`** — declared upstream, but its weights release is not published yet
-  (every asset URL 404s). `total` segments the same 117 classes.
-
-`find_structures` reports structures that only an excluded model could produce, with
-the reason, rather than silently returning "no match".
-
-The policy lives in [`tools/_catalog.py`](src/medmcp_totalsegmentator/tools/_catalog.py)
-and is asserted by [`tests/test_licensing.py`](tests/test_licensing.py) — including
-that every bundled weights URL points at the public GitHub release. The container
-build reads its download list from that same module, so the image cannot ship a
-different set than the tools offer.
-
-### Telemetry is disabled
-
-Upstream POSTs anonymous run metadata (platform, Python version, CUDA availability,
-task, license number) to `stats.totalsegmentator.com`, and offers no environment
-variable to turn it off — the config file is the only lever. The image writes
-`send_usage_stats: false` at build time, and the subprocess runner re-asserts it at
-run time for host-native development. Container stacks also run `--network none`, but
-the send is wrapped in `try/except` and so fails *silently*, which makes the sandbox
-alone the wrong thing to rely on.
 
 ### Citation
 
@@ -114,6 +124,8 @@ Full third-party attribution belongs in [`NOTICE`](NOTICE).
 - Disk: the image carries ~8.8 GiB of weights on top of the shared CUDA base.
 - The discovery tools (`list_*`, `find_structures`) are pure data lookups — no GPU, no
   model load.
+- **Runs fully offline.** Every model is baked into the image, nothing is downloaded at
+  run time, and TotalSegmentator's usage reporting is switched off.
 
 ---
 
