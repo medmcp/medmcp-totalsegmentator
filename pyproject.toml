@@ -68,6 +68,9 @@ Issues = "https://github.com/medmcp/medmcp-totalsegmentator/issues"
 test = [
     "pytest>=9",
     "pytest-asyncio>=1.2",
+    # Used by tests/test_arm64.py to evaluate the lock's environment markers. Arrives
+    # transitively anyway; declared so the test does not depend on that continuing.
+    "packaging>=24",
 ]
 quality = [
     "ruff>=0.15",
@@ -89,7 +92,17 @@ default-groups = ["dev"]
 # have a source distribution or wheel for the current platform". Restore the
 # missing architecture marker so triton is required on x86_64 only; torch itself
 # has a manylinux_2_28_aarch64 cu128 wheel and does not need triton there.
-override-dependencies = ["triton; sys_platform == 'linux' and platform_machine == 'x86_64'"]
+override-dependencies = [
+    "triton; sys_platform == 'linux' and platform_machine == 'x86_64'",
+    # TotalSegmentator requires fury<2, whose newest release (0.12.0) caps vtk at
+    # <9.4.0 -- and vtk only began publishing linux-aarch64 wheels at 9.5.0. Left
+    # alone, the arm64 image cannot be built at all: uv resolves vtk 9.3.1 and the
+    # install fails with "no source distribution or wheel for the current platform".
+    # fury and vtk are pulled in for TotalSegmentator's preview/rendering code, which
+    # is never on the segmentation path (importing totalsegmentator.python_api loads
+    # neither), so lifting the cap costs nothing we use.
+    "vtk>=9.5",
+]
 
 # Pin the PyTorch ecosystem to the CUDA 12.8 build so the GPU image runs on any
 # host driver >= R570 (covers Turing through Blackwell via CUDA backward-compat).

@@ -79,18 +79,20 @@ RUN printf '%s\n' '#!/bin/sh' \
       'done' \
     > /usr/local/bin/retry && chmod +x /usr/local/bin/retry
 
-# The source, and the project itself: everything above depends only on the lock.
-COPY src ./src
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev
-
 # Bake every Apache-2.0 weight so segmentation runs with `--network none`. The id list
 # comes from the same _catalog module the tools use, so the image can never ship a
 # different set than the tools offer — including the auxiliary coarse models
 # TotalSegmentator pulls at run time for cropping, which are invisible in the task
 # list but fatal to an offline run if missing.
+#
+# Only _catalog.py is copied in, ahead of the rest of the source, and the module is
+# loaded from that file directly (it imports nothing of ours — only TotalSegmentator's
+# pure-data maps). That keeps this layer's cache key to the one file that decides which
+# weights are needed: with `COPY src` above it, editing any line of Python anywhere in
+# the package re-downloaded all 9.6 GB.
+COPY src/medmcp_totalsegmentator/tools/_catalog.py /tmp/catalog_probe.py
 RUN /app/.venv/bin/python -c \
-        "from medmcp_totalsegmentator.tools._catalog import weight_dataset_ids; print('\n'.join(str(i) for i in weight_dataset_ids()))" \
+        "import importlib.util as u; s = u.spec_from_file_location('catalog_probe', '/tmp/catalog_probe.py'); m = u.module_from_spec(s); s.loader.exec_module(m); print('\n'.join(str(i) for i in m.weight_dataset_ids()))" \
         > /tmp/weight_ids.txt \
  && echo "baking $(wc -l < /tmp/weight_ids.txt) weight datasets" \
  && while read -r id; do \
@@ -99,9 +101,16 @@ RUN /app/.venv/bin/python -c \
             "import sys; from totalsegmentator.libs import download_pretrained_weights as d; d(int(sys.argv[1]))" \
             "${id}"; \
     done < /tmp/weight_ids.txt \
- && rm -f /tmp/weight_ids.txt \
+ && rm -f /tmp/weight_ids.txt /tmp/catalog_probe.py \
  && find "${TOTALSEG_HOME_DIR}" -name '*.zip' -delete \
  && find /app/.venv -name '__pycache__' -type d -prune -exec rm -rf {} +
+
+# The source, and the project itself, last: everything above depends only on the lock
+# and on _catalog.py, so a code change now rebuilds seconds of work instead of
+# re-fetching every weight archive.
+COPY src ./src
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev
 
 ENV PATH=/app/.venv/bin:$PATH \
     UV_NO_SYNC=1

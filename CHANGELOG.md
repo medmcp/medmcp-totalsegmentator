@@ -40,6 +40,20 @@ networking denied.
   stack nothing compiles from source on aarch64.
 - `segment-anatomy` skill covering task selection, modality matching, and volumetry.
 
+### Fixed
+
+- The arm64 image could not be built at all. TotalSegmentator requires `fury<2`, whose
+  newest release caps `vtk` below 9.4 — and vtk only began publishing linux-aarch64
+  wheels at 9.5.0, so the arm64 leg failed during dependency install. The cap is now
+  lifted by an override; fury and vtk are only used by preview/rendering code that the
+  segmentation path never imports. A test walks the lock with environment markers
+  evaluated for linux/aarch64 and fails if any package that architecture actually
+  needs has no aarch64 wheel and no sdist — checking each package's *latest* release on
+  PyPI does not catch this, because a transitive cap can pin an older version.
+- A one-line code change no longer re-downloads all 9.6 GB of weights when building the
+  image. The weight-baking layer now depends only on the module that decides which
+  weights are needed, rather than on the whole source tree.
+
 ### Security
 
 - **Only Apache-2.0 weights are bundled**, so the image stays redistributable under a
