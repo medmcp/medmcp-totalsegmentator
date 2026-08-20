@@ -1,0 +1,23 @@
+medmcp-template
+Copyright 2026 The MedMCP authors
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+------------------------------------------------------------------------------
+Bundled third-party tools and model weights
+------------------------------------------------------------------------------
+
+REPLACE THIS SECTION. A stack that wraps third-party tools, or that bakes their
+pretrained weights into its published image, redistributes them — each remains
+under its own license and most carry citation requirements of their own. List
+every one here, and mirror the citations in README.md.
+
+Use this shape (see medmcp-neuro-core's NOTICE for a filled-in example):
+
+  - <tool name> (<the tool function that uses it>) — <one line on what it does>.
+    <License>. <upstream URL>
+    Cite: <author et al., "title", venue (year)>.
+
+If your stack bundles nothing third-party, say so explicitly rather than
+deleting the file — "this stack bundles no third-party models or weights" is
+information, an absent NOTICE is ambiguous.

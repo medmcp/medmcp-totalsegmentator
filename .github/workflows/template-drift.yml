@@ -1,0 +1,85 @@
+name: Template drift
+
+# Every MedMCP stack shares a set of files with medmcp-template — the CI
+# workflow, pre-commit config, issue templates, licence and so on, listed in
+# scripts/shared-files.txt. Nothing stops one repo editing its copy, and nothing
+# notices: a fix landing in the template silently fails to reach the stacks, and
+# a local edit silently diverges. This is what notices.
+#
+# It reports rather than rewrites. A shared file may legitimately need to change
+# — but in the template, so every stack gets it.
+#
+# Runs on pull requests (catching a drifting edit as it is proposed) and weekly
+# (catching a template change the stacks have not picked up yet).
+
+on:
+  pull_request:
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: template-drift-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Compare shared files against medmcp-template
+        env:
+          # Set this secret only while the template is private; once it is
+          # public an anonymous clone is enough and the secret can go.
+          TEMPLATE_TOKEN: ${{ secrets.TEMPLATE_READ_TOKEN }}
+        run: |
+          manifest=scripts/shared-files.txt
+          if [ ! -f "$manifest" ]; then
+            echo "::notice::no $manifest — this repo does not track template-shared files"
+            exit 0
+          fi
+
+          url=https://github.com/medmcp/medmcp-template.git
+          [ -n "$TEMPLATE_TOKEN" ] && url="https://x-access-token:${TEMPLATE_TOKEN}@github.com/medmcp/medmcp-template.git"
+
+          if ! git clone --quiet --depth 1 "$url" /tmp/template 2>/dev/null; then
+            # Do not fail the build over an unreadable template: while the repos
+            # are private this would red-CI every stack for a reason unrelated
+            # to the change under review.
+            echo "::warning::could not read medmcp-template (private?) — drift not checked"
+            exit 0
+          fi
+
+          drifted=""
+          while IFS= read -r f; do
+            case "$f" in ''|'#'*) continue;; esac
+            if [ ! -f "/tmp/template/$f" ]; then
+              echo "::warning::$f is listed in $manifest but absent from the template"
+              continue
+            fi
+            if [ ! -f "$f" ]; then
+              drifted="$drifted $f(missing)"
+              continue
+            fi
+            cmp -s "/tmp/template/$f" "$f" || drifted="$drifted $f"
+          done < "$manifest"
+
+          if [ -n "$drifted" ]; then
+            echo "::error::shared files differ from medmcp-template:$drifted"
+            echo
+            echo "Each of these is meant to be identical across every stack."
+            echo "If the change belongs everywhere, make it in medmcp-template."
+            echo "Then, here:  ./scripts/sync-from-template.sh"
+            echo
+            for f in $drifted; do
+              case "$f" in *"(missing)") continue;; esac
+              echo "--- $f"
+              diff -u "/tmp/template/$f" "$f" | head -40 || true
+            done
+            exit 1
+          fi
+          echo "All shared files match the template."

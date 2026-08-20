@@ -1,0 +1,81 @@
+name: Bug report
+description: Something is broken or behaving incorrectly.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug.
+
+        > **Important:** Never attach real patient data (PHI) to this issue.
+        > Use anonymized or synthetic DICOMs/NIfTIs only. If the bug only reproduces on
+        > data you can't share, describe the file characteristics (modality, vendor,
+        > transfer syntax, dimensions) in the "Input data" field below.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear description of the bug and what you expected instead.
+      placeholder: "When I run `...`, I get `...`, but I expected `...`."
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Minimal commands or code to reproduce the issue.
+      render: bash
+    validations:
+      required: true
+
+  - type: textarea
+    id: input-data
+    attributes:
+      label: Input data (characteristics only — no PHI)
+      description: |
+        If the bug depends on input files, describe them without attaching them.
+        Example: "DICOM, Siemens MAGNETOM Vida, MR, T1w MPRAGE, 256×256×176, Explicit VR Little Endian".
+      placeholder: "Modality, vendor, transfer syntax, dimensions, anything unusual..."
+
+  - type: input
+    id: version
+    attributes:
+      label: Package version / commit
+      placeholder: "e.g. 0.1.0 or commit abc1234"
+    validations:
+      required: true
+
+  - type: input
+    id: python
+    attributes:
+      label: Python version
+      placeholder: "e.g. 3.12.7"
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: "e.g. Ubuntu 24.04, macOS 14.5"
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs / tracebacks
+      description: Paste any stack traces here. Redact PHI, hostnames, and credentials.
+      render: text
+
+  - type: checkboxes
+    id: acknowledgements
+    attributes:
+      label: Acknowledgements
+      options:
+        - label: I have not included any patient data (PHI) in this report.
+          required: true
+        - label: I have searched existing issues and this is not a duplicate.
+          required: true

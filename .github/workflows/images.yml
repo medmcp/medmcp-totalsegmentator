@@ -1,0 +1,182 @@
+name: Image
+
+# Builds this stack's image for BOTH architectures and publishes a multi-arch tag.
+#
+# ─── Adapting this for your stack ────────────────────────────────────────────────
+# Change STACK below to your stack's short name (the part after ghcr.io/medmcp/),
+# and update the tool name asserted in the smoke test. Nothing else should need
+# editing for a CPU stack. For a GPU stack, see the notes at the bottom.
+# ─────────────────────────────────────────────────────────────────────────────────
+#
+# On push to main: build on a NATIVE runner per architecture, smoke-test each
+# natively, push arch-suffixed tags, then merge them into a multi-arch manifest list
+# so ghcr.io/medmcp/<stack>:main resolves per-arch.
+# On pull_request / workflow_dispatch: build + smoke-test both arches, no push.
+#
+# Both architectures are REQUIRED, not optional: arm64 is a first-class target
+# (DGX Spark and similar), and the medmcp core refuses to install a stack image
+# built for a foreign architecture (medmcp#97) rather than letting it fail later
+# with "exec format error". An amd64-only stack is simply uninstallable there.
+#
+# Each arch builds natively — do NOT collapse this into a single buildx
+# --platform linux/amd64,linux/arm64 build. QEMU is far too slow for CUDA/torch
+# compiles, and it puts both architectures on one runner's disk. See medmcp#95.
+#
+# FROM ghcr.io/medmcp/base — the base package must grant this repo read access
+# (base package settings -> Manage Actions access).
+#
+# NOTE: ubuntu-24.04-arm is free for public repos; private repos need a paid Team
+# or Enterprise plan. Without one, swap that runner for a self-hosted aarch64 one.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+# Two merges landing close together otherwise race: both runs push the bare
+# :main tag, and whichever finishes LAST wins it — which is the run that started
+# FIRST if it happens to be slower, leaving :main built from the older commit
+# with nothing failing and nothing in the logs to say so (medmcp#109).
+#
+# Queue rather than cancel on main: cancelling fixes the ordering too, but a
+# superseded commit would never publish its :<sha> image, and those are what a
+# rollback pins to. Pull requests do cancel — a superseded PR build has nothing
+# to publish and is only spending runner time.
+concurrency:
+  group: image-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # CHANGE ME: your stack's short name, i.e. ghcr.io/medmcp/<STACK>
+  STACK: template
+
+jobs:
+  image:
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      # Don't cancel the sibling arch on failure — a broken arm64 build should
+      # still leave a diagnosable amd64 run, and vice versa.
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v7
+      # Hosted runners ship ~25 GB of preinstalled toolchains. Stack images are
+      # large, and `load: true` materialises the image twice, so reclaim first.
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android "${AGENT_TOOLSDIRECTORY:-/opt/hostedtoolcache}" || true
+          df -h /
+      - uses: docker/setup-buildx-action@v4
+      # Login on every event — needed to pull the private base, even for PR builds.
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      # Build and load locally so the exact image is smoke-tested before pushing.
+      # Arch-suffixed tags are an internal handoff to the merge job — nothing
+      # outside this workflow should consume them.
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          load: true
+          push: false
+          build-args: |
+            BASE_IMAGE=ghcr.io/medmcp/base:main
+          tags: |
+            ghcr.io/medmcp/${{ env.STACK }}:${{ github.sha }}-${{ matrix.arch }}
+            ghcr.io/medmcp/${{ env.STACK }}:main-${{ matrix.arch }}
+          # Scope the cache per arch, or the two legs evict each other's layers.
+          # Drop caching entirely if your image exceeds the ~10 GB Actions cache cap.
+          cache-from: type=gha,scope=${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.arch }}
+      # Smoke test: the installed package must launch and register its tools.
+      # Runs natively on each arch, so an arm64-only import failure (a dependency
+      # with no aarch64 wheel, say) is caught here rather than at install time.
+      # CHANGE ME: assert your own tool names.
+      - name: Smoke test (tool registration)
+        run: |
+          docker run --rm --entrypoint python \
+            ghcr.io/medmcp/${{ env.STACK }}:main-${{ matrix.arch }} -c "
+          import asyncio
+          from medmcp_template.server import mcp
+          names = [t.name for t in asyncio.run(mcp.list_tools())]
+          print('registered tools:', names)
+          assert 'add_numbers' in names, names
+          "
+      # The discovery label must parse — the core reads it to build the launch
+      # recipe, and a malformed label makes the stack uninstallable.
+      - name: Check stack label
+        run: |
+          docker inspect --format '{{ index .Config.Labels "org.medmcp.stack" }}' \
+            ghcr.io/medmcp/${{ env.STACK }}:main-${{ matrix.arch }} | tee /tmp/label.json
+          python -c "import json; d=json.load(open('/tmp/label.json')); assert d['name'], d"
+      # Verify the leg really built the architecture it claims — a mislabelled leg
+      # would produce a manifest list uninstallable on one platform.
+      - name: Check image architecture
+        run: |
+          got=$(docker image inspect \
+                  ghcr.io/medmcp/${{ env.STACK }}:main-${{ matrix.arch }} \
+                  --format '{{.Architecture}}')
+          echo "built: $got, expected: ${{ matrix.arch }}"
+          [ "$got" = "${{ matrix.arch }}" ] \
+            || { echo "::error::image is $got, expected ${{ matrix.arch }}"; exit 1; }
+      - name: Push to GHCR
+        if: ${{ github.event_name != 'pull_request' }}
+        run: |
+          docker push ghcr.io/medmcp/${{ env.STACK }}:${{ github.sha }}-${{ matrix.arch }}
+          docker push ghcr.io/medmcp/${{ env.STACK }}:main-${{ matrix.arch }}
+
+  # Runs once, after BOTH arches have pushed. Merging the per-arch images into a
+  # manifest list is what makes the bare tag multi-arch; without this job the
+  # suffixed tags exist but ghcr.io/medmcp/<stack>:main would not.
+  merge:
+    needs: image
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Merge arch tags into multi-arch manifest lists
+        run: |
+          for tag in "${{ github.sha }}" main; do
+            docker buildx imagetools create -t "ghcr.io/medmcp/${{ env.STACK }}:$tag" \
+              "ghcr.io/medmcp/${{ env.STACK }}:$tag-amd64" \
+              "ghcr.io/medmcp/${{ env.STACK }}:$tag-arm64"
+          done
+      - name: Verify both platforms resolve
+        run: |
+          insp=$(docker buildx imagetools inspect "ghcr.io/medmcp/${{ env.STACK }}:main")
+          echo "$insp"
+          for plat in linux/amd64 linux/arm64; do
+            echo "$insp" | grep -q "$plat" \
+              || { echo "::error::${{ env.STACK }}:main is missing $plat"; exit 1; }
+          done
+          echo "both platforms present"
+
+# ─── GPU stacks ──────────────────────────────────────────────────────────────────
+# Set "gpu": true in the Dockerfile's org.medmcp.stack label; the core then adds
+# --device nvidia.com/gpu=… at launch. GPU images are large, so you will likely want
+# to drop the cache-from/cache-to lines (they exceed the Actions cache cap and fill
+# the runner disk) and switch the build step to push directly rather than
+# load + smoke-test, since a CUDA image may not run on a GPU-less runner.
+#
+# Watch the arm64 leg: several scientific wheels are x86_64-only on Linux and fall
+# back to a source build. Known cases — antspyx (no aarch64 wheel for 0.5+),
+# scikit-misc (none in any release), triton (x86_64 only; the cu128 torch wheels
+# declare it without an arch marker, so pin one via [tool.uv] override-dependencies).
+# Add a build toolchain gated on arm64 when this happens; see medmcp-neuro-core#19
+# and medmcp-cohort#6 for worked examples.
+# ─────────────────────────────────────────────────────────────────────────────────

@@ -1,0 +1,40 @@
+# Files every MedMCP stack repo shares byte-for-byte with medmcp-template.
+#
+# `scripts/sync-from-template.sh` copies these outward; the template-drift
+# workflow fails a build when one of them has diverged. Keeping the list
+# explicit — rather than "everything except X" — means adding a shared file is a
+# deliberate act, and a stack can still be inspected to see exactly what it
+# inherits.
+#
+# Note: the sync copies files, it does not delete them. Removing a file from this
+# list stops it being kept in step; deleting it from the stacks that already have
+# it is a separate, manual step. `.github/CODEOWNERS` was removed this way.
+#
+# Deliberately NOT here, because each repo must differ:
+#   README.md, CHANGELOG.md, pyproject.toml, uv.lock, Dockerfile, justfile
+#       — stack-specific content.
+#   CONTRIBUTING.md
+#       — template-derived, but scaffolding sections are stripped at rename time,
+#         so a scaffolded copy is legitimately shorter than the template's.
+#   .github/workflows/images.yml, .devcontainer/*
+#       — template-derived, but carry the stack's name and its build deps.
+#   .github/ISSUE_TEMPLATE/config.yml
+#       — points at the repo's own Discussions.
+#   .github/dependabot.yml
+#       — dependency policy is per-repo. medmcp-neuro-core ignores torch and
+#         torchvision because their version sets the fleet's minimum GPU driver;
+#         that rule is meaningless in a repo with no torch.
+.dockerignore
+.editorconfig
+.pre-commit-config.yaml
+.python-version
+CODE_OF_CONDUCT.md
+LICENSE
+SECURITY.md
+.github/ISSUE_TEMPLATE/bug_report.yml
+.github/ISSUE_TEMPLATE/feature_request.yml
+.github/PULL_REQUEST_TEMPLATE.md
+.github/workflows/ci.yml
+.github/workflows/template-drift.yml
+scripts/shared-files.txt
+scripts/sync-from-template.sh

@@ -1,0 +1,13 @@
+# Build context hygiene.
+.git
+.github
+.idea
+.vscode
+.venv
+**/__pycache__
+*.py[cod]
+.pytest_cache
+.ruff_cache
+.mypy_cache
+*.egg-info
+tests

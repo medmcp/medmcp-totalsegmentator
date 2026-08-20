@@ -1,0 +1,104 @@
+[build-system]
+requires = ["uv_build"]
+build-backend = "uv_build"
+
+[project]
+name = "medmcp-template"
+version = "0.0.0"
+description = "Template for medmcp ecosystem packages (stacks, foundations, tools)."
+readme = "README.md"
+license = { file = "LICENSE" }
+authors = [
+    { name = "Julian McGinnis", email = "julian.mcginnis@tum.de" },
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Healthcare Industry",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: Image Processing",
+    "Topic :: Scientific/Engineering :: Medical Science Apps.",
+]
+keywords = ["medical", "image processing", "ai-agent", "mcp"]
+requires-python = ">=3.12"
+dependencies = [
+    "mcp>=1.0",
+    # "medmcp-dicom>=0.1",  # uncomment once medmcp-dicom is available
+]
+
+[project.scripts]
+medmcp-template = "medmcp_template.server:main"
+
+[project.entry-points."medmcp.stacks"]
+medmcp-template = "medmcp_template.server:server_config"
+
+# How a downstream "core" package declares this package as an optional extra:
+# [project.optional-dependencies]
+# neuro = ["medmcp-neuro>=0.1"]
+
+[project.urls]
+Homepage = "https://github.com/medmcp/medmcp-template"
+Issues = "https://github.com/medmcp/medmcp-template/issues"
+
+# Pin git-sourced medmcp packages during development:
+# [tool.uv.sources]
+# medmcp-dicom = { git = "https://github.com/medmcp/medmcp-dicom", branch = "main" }
+
+[dependency-groups]
+test = [
+    "pytest>=9",
+    "pytest-asyncio>=1.2",
+]
+quality = [
+    "ruff>=0.15",
+    "pyright>=1.1.400",
+    "pre-commit>=4.5",
+]
+dev = [
+    { include-group = "test" },
+    { include-group = "quality" },
+]
+
+[tool.uv]
+default-groups = ["dev"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W",   # pycodestyle
+    "F",        # pyflakes
+    "I",        # isort
+    "N",        # pep8-naming
+    "UP",       # pyupgrade
+    "B",        # flake8-bugbear
+    "SIM",      # flake8-simplify
+    "RUF",      # ruff-specific
+    "D",        # pydocstyle
+]
+
+ignore = ["D100", "D104"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.pyright]
+include = ["src", "tests"]
+pythonVersion = "3.12"
+typeCheckingMode = "strict"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
