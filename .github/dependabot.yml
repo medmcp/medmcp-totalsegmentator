@@ -14,3 +14,9 @@ updates:
     groups:
       dev-deps:
         dependency-type: "development"
+    ignore:
+      # torch is pinned exactly, to the cu128 build, so the GPU image runs on any
+      # host driver >= R570 — the fleet floor. Bumping it moves the CUDA build and
+      # therefore the minimum driver, which is a fleet capacity decision, not
+      # routine maintenance. Raise the pin deliberately, here, when the floor moves.
+      - dependency-name: "torch"

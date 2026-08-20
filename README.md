@@ -1,62 +1,104 @@
-# medmcp-template
+# medmcp-totalsegmentator
 
-Scaffolding template for packages in the [medmcp](https://github.com/medmcp) ecosystem — foundations (e.g. `medmcp-dicom`), stacks (e.g. `medmcp-neuro`), and supporting tools.
-
-Each package built from this template is a **distributable Python package** that exposes an **MCP (Model Context Protocol) server** over stdio.
-An LLM (e.g. a local Gemma4 instance) invokes the registered tools by name to perform medical image processing tasks.
-
-Click **Use this template** on GitHub to scaffold a new package.
+Whole-body anatomy segmentation for the [medmcp](https://github.com/medmcp) ecosystem —
+a **distributable Python package** exposing [TotalSegmentator](https://github.com/wasserth/TotalSegmentator)
+as an **MCP (Model Context Protocol) server** over stdio. A local LLM invokes the
+registered tools by name to segment structures on CT and MR volumes.
 
 > [!WARNING]
-> MedMCP and its ecosystem are research software under active development and are **not licensed for clinical use**.
+> MedMCP and its ecosystem are research software under active development and are
+> **not licensed for clinical use**. TotalSegmentator is not a medical device and its
+> output is an estimate, not a clinical finding.
 
 ---
 
 ## Tool inventory
 
-<!-- Replace this table after scaffolding. One row per registered MCP tool. -->
-
 | Tool name | Description | Inputs | Outputs |
 |---|---|---|---|
-| `add_numbers` | Placeholder — adds two floats | `a: float`, `b: float` | `{"result": float}` |
+| `segment_anatomy` | Segment anatomical structures on a CT or MR volume | `input_path: Path`, `output_dir: Path?`, `task: str = "total"`, `structures: list[str]?`, `speed: "standard"\|"fast"\|"fastest"`, `device: "auto"\|"cuda"\|"mps"\|"cpu"`, `separate_masks: bool`, `compute_volumes: bool` | Multilabel `*_dseg.nii.gz` (or a directory of binary masks), a label→structure CSV, a per-structure volume CSV (mm³), the resolved device, and warnings |
+| `list_segmentation_tasks` | List every available task with its modality and structure count | — | 31 tasks |
+| `list_task_structures` | Exact structure names a task produces, in label order | `task: str` | Structure list |
+| `find_structures` | Find which tasks produce a named structure | `query: str` | Matching structures → tasks, plus any matches only a non-bundled model could produce |
+
+Segmentation runs in a **subprocess**. TotalSegmentator prints to stdout
+unconditionally, and stdout belongs to the MCP framing — in-process, its banner would
+corrupt the session. It also keeps the server's import free of torch, so tool
+discovery answers in well under a second instead of racing the agent's start-up budget.
 
 ### Bundled tools
 
-<!-- REPLACE THIS SECTION, and keep it in step with NOTICE.
-
-A stack that wraps third-party software, or bakes pretrained weights into its
-published image, redistributes them: each stays under its own license and most
-carry citation requirements. List what you bundle, what uses it, where it comes
-from, and under what licence — one row each — then mirror it in NOTICE.
-
 | Tool / weights | Used by | Source | License |
 |---|---|---|---|
-| example-tool | `your_tool` | [upstream](https://example.org) package dependency (baked into the image) | [Apache 2.0](https://example.org/LICENSE) |
--->
+| TotalSegmentator | `segment_anatomy` | [upstream](https://github.com/wasserth/TotalSegmentator), weights baked into the image | [Apache-2.0](https://github.com/wasserth/TotalSegmentator/blob/master/LICENSE) |
+| nnU-Net | segmentation engine | [upstream](https://github.com/MIC-DKFZ/nnUNet), dependency | [Apache-2.0](https://github.com/MIC-DKFZ/nnUNet/blob/master/LICENSE) |
 
-N/A — placeholder package. It bundles no third-party tools and no pretrained
-weights, so there is nothing to attribute yet.
+### Which tasks are available, and why not all of them
+
+TotalSegmentator's **code** is Apache-2.0, but its **weights are not uniformly so**.
+This stack bundles only the tasks upstream publishes under Apache-2.0 — 31 of them,
+42 weight datasets, ~8.8 GiB — so the image stays redistributable under a single,
+unambiguous license.
+
+Not bundled, and not reachable from the tools:
+
+- **License-gated tasks** (`tissue_types`, `brain_structures`, `face`,
+  `coronary_arteries`, `heartchambers_highres`, `appendicular_bones`, …). Their
+  weights come from the upstream license backend and need a
+  [license number](https://backend.totalsegmentator.com/license-academic/) — free for
+  non-commercial use, paid for commercial use.
+- **`brain_aneurysm`** — CC BY-NC 4.0 with *no* commercial license available. Upstream
+  does not list it in `commercial_models`, so filtering on its `requires_license()`
+  predicate alone would quietly pull a non-commercial model into an Apache-2.0 image.
+  It is excluded by name.
+- **`total_v3`** — declared upstream, but its weights release is not published yet
+  (every asset URL 404s). `total` segments the same 117 classes.
+
+`find_structures` reports structures that only an excluded model could produce, with
+the reason, rather than silently returning "no match".
+
+The policy lives in [`tools/_catalog.py`](src/medmcp_totalsegmentator/tools/_catalog.py)
+and is asserted by [`tests/test_licensing.py`](tests/test_licensing.py) — including
+that every bundled weights URL points at the public GitHub release. The container
+build reads its download list from that same module, so the image cannot ship a
+different set than the tools offer.
 
 ### Citation
 
-<!-- REPLACE THIS SECTION if your stack wraps published scientific methods.
-Results produced with them should cite the underlying work, not this package:
+Results produced with this stack should cite the underlying work, not this package:
 
-- **Tool name** — Author A, et al. Title. *Journal* (Year). [doi:...](https://doi.org/...)
--->
+- **TotalSegmentator** — Wasserthal J, et al. TotalSegmentator: Robust Segmentation of
+  104 Anatomic Structures in CT Images. *Radiology: Artificial Intelligence* 5(5)
+  (2023). [doi:10.1148/ryai.230024](https://doi.org/10.1148/ryai.230024)
+- **TotalSegmentator MRI** (for `*_mr` tasks) — D'Antonoli TA, et al. *Radiology*
+  314(2) (2025). [doi:10.1148/radiol.241613](https://doi.org/10.1148/radiol.241613)
+- **nnU-Net** — Isensee F, et al. *Nature Methods* 18:203-211 (2021).
+  [doi:10.1038/s41592-020-01008-z](https://doi.org/10.1038/s41592-020-01008-z)
 
-N/A — placeholder package, no third-party methods to cite.
+Individual tasks carry further citation requirements for the datasets they derive
+from; see the upstream README's task list.
 
 Full third-party attribution belongs in [`NOTICE`](NOTICE).
 
 ### Hardware requirements
 
-<!-- Document GPU/CPU/RAM requirements per tool, e.g.:
-- `brain_extract`: CUDA GPU recommended (≥8 GB VRAM), CPU fallback available (~3× slower)
-- `register`: CPU-only, ≥16 GB RAM for typical T1w volumes
--->
+- `segment_anatomy`: CUDA GPU recommended. A whole-body CT at `speed="standard"`
+  (1.5 mm) is roughly a minute on a modern GPU; on CPU it runs into many minutes, so
+  prefer `speed="fast"` or a `structures` subset there. The tool reports the resolved
+  device and warns when it falls back to CPU.
+- Disk: the image carries ~8.8 GiB of weights on top of the shared CUDA base.
+- The discovery tools (`list_*`, `find_structures`) are pure data lookups — no GPU, no
+  model load.
 
-N/A — placeholder package.
+### Telemetry is disabled
+
+Upstream POSTs anonymous run metadata (platform, Python version, CUDA availability,
+task, license number) to `stats.totalsegmentator.com`, and offers no environment
+variable to turn it off — the config file is the only lever. The image writes
+`send_usage_stats: false` at build time, and the subprocess runner re-asserts it at
+run time for host-native development. Container stacks also run `--network none`, but
+the send is wrapped in `try/except` and so fails *silently*, which makes the sandbox
+alone the wrong thing to rely on.
 
 ---
 
@@ -64,11 +106,7 @@ N/A — placeholder package.
 
 | Skill | What it is for |
 |---|---|
-| `<task-name>` | REPLACE ME — one line on the task this skill guides the agent through. |
-
-Skills live in `src/<package>/skills/<task-name>/SKILL.md`: the workflow steps and
-the gotchas for a task, not a description of the tools. The `name:` field must
-match the directory name.
+| `segment-anatomy` | Choosing the right task for the anatomy asked about, matching modality, and reporting structure volumes |
 
 ---
 
@@ -116,92 +154,13 @@ in `pyproject.toml` against the fleet driver floor (CUDA 12.8 / driver R570).
 
 ### Staying in sync with the template
 
-Files shared with [medmcp-template](https://github.com/medmcp/medmcp-template) are
+Files shared with [medmcp-totalsegmentator](https://github.com/medmcp/medmcp-totalsegmentator) are
 listed in `scripts/shared-files.txt`. The **Template drift** workflow reports when
 one of them diverges; `./scripts/sync-from-template.sh` pulls them back. A change
 that belongs in every stack goes in the template, not here.
 
 ---
 
-<!-- TEMPLATE-ONLY:START -->
-<!-- Everything between these markers is scaffolding instructions for
-     someone creating a stack FROM this template. `scripts/rename.sh`
-     deletes it, so a scaffolded repo never ships it. -->
-
-## What's in the box
-
-| Area | Files | Notes |
-|---|---|---|
-| Build / deps | `pyproject.toml`, `.python-version` | uv-managed, Python ≥3.12, `mcp>=1.0` |
-| MCP server | `src/medmcp_template/server.py` | FastMCP over stdio; `server_config()` enables autodiscovery; add tools here |
-| Tool scaffold | `src/medmcp_template/tools/example.py` | One file per tool group; include `_render` key for format-critical tools |
-| AgentSkill | `src/medmcp_template/skills/<task-name>/SKILL.md` | Workflow steps + gotchas; `name` field must match directory name |
-| Dev workflow | `justfile`, `.pre-commit-config.yaml` | `just setup`, `just check`, `just fix` |
-| Dev container | `.devcontainer/` | Recommended dev workflow (PyCharm / VS Code) — same toolchain as deployment |
-| Container image | `Dockerfile`, `.dockerignore` | Ship the stack as a stdio MCP server image (`FROM medmcp-base`); `just docker-build` |
-| CI | `.github/workflows/ci.yml` | Lint, format-check, pyright (strict), pytest on py3.12 / 3.13 |
-| Contributor docs | `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md` | |
-| Issue management | `.github/ISSUE_TEMPLATE/*`, `PULL_REQUEST_TEMPLATE.md` | Medical-context-aware with PHI warnings |
-
----
-
-## Using this template
-
-### 1. Scaffold a new repo
-
-Click **Use this template → Create a new repository** on GitHub, then clone locally.
-
-### 2. Rename the placeholder package
-
-```bash
-./scripts/rename.sh medmcp-dicom
-rm scripts/rename.sh
-```
-
-### 3. Update metadata
-
-Edit `pyproject.toml`: set `description`, `keywords`, `authors`, and the `Homepage`/`Issues` URLs.
-
-Confirm that `server_config()` in `server.py` returns the correct `name` and `command` — these must match the renamed console script so the local agent resolves the right binary during autodiscovery.
-
-### 4. Implement your tools
-
-- Add tool functions to `src/<your_package>/tools/`.
-- Register them in `src/<your_package>/server.py` with `mcp.add_tool(your_tool)`.
-- FastMCP derives the MCP `name`, `description`, and `inputSchema` from the function signature and docstring — keep docstrings focused on what the tool does and what it returns.
-- For tools with specific output format requirements, include a `_render` key (str) in the return dict with display rules and a required next action (see `process_image` in `example.py`).
-
-### 5. Update the AgentSkill
-
-- Rename `src/<your_package>/skills/<your_package>/` to a task name (e.g. `explore-data`,
-  `segment-brain`). Update the `name` field in `SKILL.md` to match the new directory name.
-- Replace the placeholder workflow and gotchas with domain-specific guidance.
-- **Do not add output format rules to SKILL.md** — those belong in the tool's `_render`
-  return value. Keep the skill focused on workflow steps and gotchas only.
-
-### 6. Install and activate
-
-Install the package as a uv tool — the local agent autodiscovers it on the next session:
-
-```bash
-uv tool install ./medmcp-dicom          # local dev
-# or
-uv tool install medmcp-dicom            # from PyPI once published
-```
-
-The package declares itself via the `[medmcp.stacks]` entry point (written to `entry_points.txt` at install time). The agent scans all uv tool environments for this section, calls `server_config()` to retrieve the server name and command, and resolves the absolute binary path — no manual edits to `.vibe/config.toml` needed.
-
-The AgentSkill in `src/<your_package>/skills/<task-name>/` is picked up by the agent alongside the MCP server — no separate install step needed.
-
-### 7. Verify
-
-```bash
-just setup && just check
-```
-
----
-
-<!-- TEMPLATE-ONLY:END -->
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md). Short version: fork, `just setup`, `just check`, open a PR against `main`.

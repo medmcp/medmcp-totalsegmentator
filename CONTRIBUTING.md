@@ -4,32 +4,6 @@ Thanks for your interest in contributing to a medmcp ecosystem package.
 
 This file lives in [medmcp-template](https://github.com/medmcp/medmcp-template) and is copied into every downstream repo. If you're reading it inside `medmcp-dicom`, `medmcp-neuro`, etc., the same workflow applies — only the repo name differs.
 
-<!-- TEMPLATE-ONLY:START -->
-<!-- Everything between these markers is scaffolding instructions for
-     someone creating a stack FROM this template. `scripts/rename.sh`
-     deletes it, so a scaffolded repo never ships it. -->
-## Creating a new package from this template
-
-### 1) Create a new repo from this template
-
-Click **Use this template** on the [medmcp-template](https://github.com/medmcp/medmcp-template) page to create your new repository (e.g. `medmcp-dicom`).
-
-### 2) Run the rename helper
-
-```bash
-./scripts/rename.sh medmcp-dicom   # replaces medmcp-template / medmcp_template everywhere
-rm scripts/rename.sh
-```
-
-### 3) Finish the setup
-
-- Update `pyproject.toml`: description, keywords, and project URLs.
-- Replace `README.md` with content specific to your package.
-- Verify that `server_config()` in `server.py` returns the correct `name` and `command` — the local agent uses this for autodiscovery via the `[medmcp.stacks]` entry point.
-
----
-
-<!-- TEMPLATE-ONLY:END -->
 ## Get started!
 
 Ready to contribute? Here's how to set up your local development environment.

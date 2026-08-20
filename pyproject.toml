@@ -3,13 +3,14 @@ requires = ["uv_build"]
 build-backend = "uv_build"
 
 [project]
-name = "medmcp-template"
-version = "0.0.0"
-description = "Template for medmcp ecosystem packages (stacks, foundations, tools)."
+name = "medmcp-totalsegmentator"
+version = "0.1.0"
+description = "Whole-body CT and MR anatomy segmentation (TotalSegmentator) for the medmcp ecosystem."
 readme = "README.md"
 license = { file = "LICENSE" }
 authors = [
     { name = "Julian McGinnis", email = "julian.mcginnis@tum.de" },
+    { name = "Paul Friedrich", email = "paul.friedrich@unibas.ch" },
 ]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -25,26 +26,39 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Image Processing",
     "Topic :: Scientific/Engineering :: Medical Science Apps.",
 ]
-keywords = ["medical", "image processing", "ai-agent", "mcp"]
+keywords = ["medical", "image processing", "segmentation", "ct", "mri", "ai-agent", "mcp"]
 requires-python = ">=3.12"
 dependencies = [
-    "mcp>=1.0",
-    # "medmcp-dicom>=0.1",  # uncomment once medmcp-dicom is available
+    # Capped below 2.0: mcp 2.x moved FastMCP out of `mcp.server.fastmcp`, which every
+    # medmcp stack imports. Lift the cap across the ecosystem at once, not here alone --
+    # the core talks to all stacks through the same protocol version.
+    "mcp>=1.9,<2",
+    "nibabel>=5",
+    "numpy>=1.24",
+    # TotalSegmentator itself is Apache-2.0, as are the pretrained weights for every
+    # task this stack exposes. The license-gated tasks (see tools/_catalog.py) are
+    # deliberately not reachable, so nothing here needs a license number.
+    "totalsegmentator>=2.18",
+    # torch is pulled transitively by TotalSegmentator/nnU-Net; declared directly so
+    # the CUDA 12.8 index pin below ([tool.uv.sources]) applies -- uv sources only
+    # bind *direct* deps. Pinned to the same 2.7.1 as medmcp-neuro-core so the fleet
+    # runs one validated torch + CUDA combination across every GPU stack.
+    "torch==2.7.1",
 ]
 
 [project.scripts]
-medmcp-template = "medmcp_template.server:main"
+medmcp-totalsegmentator = "medmcp_totalsegmentator.server:main"
 
 [project.entry-points."medmcp.stacks"]
-medmcp-template = "medmcp_template.server:server_config"
+medmcp-totalsegmentator = "medmcp_totalsegmentator.server:server_config"
 
 # How a downstream "core" package declares this package as an optional extra:
 # [project.optional-dependencies]
 # neuro = ["medmcp-neuro>=0.1"]
 
 [project.urls]
-Homepage = "https://github.com/medmcp/medmcp-template"
-Issues = "https://github.com/medmcp/medmcp-template/issues"
+Homepage = "https://github.com/medmcp/medmcp-totalsegmentator"
+Issues = "https://github.com/medmcp/medmcp-totalsegmentator/issues"
 
 # Pin git-sourced medmcp packages during development:
 # [tool.uv.sources]
@@ -67,6 +81,25 @@ dev = [
 
 [tool.uv]
 default-groups = ["dev"]
+
+# The cu128 torch wheels declare triton as `sys_platform == 'linux'` with no
+# architecture constraint (PyPI's torch correctly adds platform_machine ==
+# 'x86_64'). triton publishes x86_64 wheels only and has no sdist, so on
+# linux/aarch64 resolution fails outright with "Distribution `triton` ... doesn't
+# have a source distribution or wheel for the current platform". Restore the
+# missing architecture marker so triton is required on x86_64 only; torch itself
+# has a manylinux_2_28_aarch64 cu128 wheel and does not need triton there.
+override-dependencies = ["triton; sys_platform == 'linux' and platform_machine == 'x86_64'"]
+
+# Pin the PyTorch ecosystem to the CUDA 12.8 build so the GPU image runs on any
+# host driver >= R570 (covers Turing through Blackwell via CUDA backward-compat).
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu128" }
 
 [tool.ruff]
 line-length = 100
@@ -96,8 +129,16 @@ quote-style = "double"
 
 [tool.pyright]
 include = ["src", "tests"]
+# _run_totalseg.py is a subprocess entry point whose heavy deps (TotalSegmentator /
+# nnU-Net / torch) ship no stubs and cause spurious reportUnknown* errors throughout
+# -- exclude rather than annotate every line.
+exclude = ["src/medmcp_totalsegmentator/tools/_run_totalseg.py"]
 pythonVersion = "3.12"
 typeCheckingMode = "strict"
+# TotalSegmentator, nnU-Net and nibabel ship no stub packages and none exist on
+# typeshed. Their call sites are narrowed explicitly where it matters; demanding
+# stubs that cannot be installed only turns `just typecheck` into noise.
+reportMissingTypeStubs = false
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

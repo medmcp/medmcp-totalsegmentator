@@ -1,23 +1,72 @@
-medmcp-template
-Copyright 2026 The MedMCP authors
+medmcp-totalsegmentator
+Copyright 2026 Julian McGinnis
+Copyright 2026 Paul Friedrich
 
 This product is licensed under the Apache License, Version 2.0 (see LICENSE).
 
 ------------------------------------------------------------------------------
-Bundled third-party tools and model weights
+Bundled segmentation tool and model weights
 ------------------------------------------------------------------------------
 
-REPLACE THIS SECTION. A stack that wraps third-party tools, or that bakes their
-pretrained weights into its published image, redistributes them — each remains
-under its own license and most carry citation requirements of their own. List
-every one here, and mirror the citations in README.md.
+medmcp-totalsegmentator wraps TotalSegmentator and redistributes its pretrained
+weights (baked into the published container image). Each remains under its own
+license and carries its own citation requirements; if you use the results in
+research, please cite the underlying methods (see the "Citation" section of
+README.md).
 
-Use this shape (see medmcp-neuro-core's NOTICE for a filled-in example):
+  - TotalSegmentator (segment_anatomy) — anatomical structure segmentation on
+    CT and MR images.
+    Apache-2.0. https://github.com/wasserth/TotalSegmentator
+    Cite: Wasserthal et al., "TotalSegmentator: Robust Segmentation of 104
+    Anatomic Structures in CT Images", Radiology: Artificial Intelligence 5(5)
+    (2023). doi:10.1148/ryai.230024
+    For MR tasks additionally cite: D'Antonoli et al., "TotalSegmentator MRI:
+    Robust Sequence-independent Segmentation of Multiple Anatomic Structures in
+    MRI", Radiology 314(2) (2025). doi:10.1148/radiol.241613
 
-  - <tool name> (<the tool function that uses it>) — <one line on what it does>.
-    <License>. <upstream URL>
-    Cite: <author et al., "title", venue (year)>.
+  - nnU-Net (the segmentation engine TotalSegmentator builds on).
+    Apache-2.0. https://github.com/MIC-DKFZ/nnUNet
+    Cite: Isensee et al., "nnU-Net: a self-configuring method for deep
+    learning-based biomedical image segmentation", Nature Methods 18:203-211
+    (2021). doi:10.1038/s41592-020-01008-z
 
-If your stack bundles nothing third-party, say so explicitly rather than
-deleting the file — "this stack bundles no third-party models or weights" is
-information, an absent NOTICE is ambiguous.
+------------------------------------------------------------------------------
+Scope of the redistributed weights
+------------------------------------------------------------------------------
+
+TotalSegmentator's code is Apache-2.0, but its pretrained weights are NOT
+uniformly so. This image bundles ONLY the tasks whose weights upstream publishes
+under Apache-2.0 ("Openly available for any usage" in the upstream README), which
+are served as public GitHub release assets.
+
+Deliberately NOT bundled, and not reachable from the tools:
+
+  - Tasks requiring a TotalSegmentator license number (free for non-commercial
+    use, paid for commercial use), whose weights are served from the upstream
+    license backend: heartchambers_highres, appendicular_bones(_mr),
+    tissue_types(_mr), tissue_4_types, brain_structures, face(_mr),
+    thigh_shoulder_muscles(_mr), coronary_arteries(_LEGACY), aortic_sinuses,
+    renal_arteries, aorta_annulus, aortic_dissection,
+    pulmonary_artery_landmarks.
+    Licensing: https://backend.totalsegmentator.com/license-academic/
+
+  - brain_aneurysm, which is CC BY-NC 4.0 with no commercial license available.
+    Note that upstream does not list this task in `commercial_models`, so it is
+    excluded by name rather than by that flag.
+
+The exclusion policy is implemented in
+src/medmcp_totalsegmentator/tools/_catalog.py and asserted by
+tests/test_licensing.py, which also verifies that every bundled weights URL
+points at the public GitHub release rather than the license backend.
+
+Individual TotalSegmentator tasks carry additional citation requirements for the
+datasets or papers they derive from; see the upstream README's task list.
+
+------------------------------------------------------------------------------
+Bundled libraries
+------------------------------------------------------------------------------
+
+The Python libraries redistributed inside the container image — including
+PyTorch, nnU-Net, SimpleITK, nibabel, and their transitive dependency closure —
+each remain under their own license; the full license texts travel with each
+package's distribution.

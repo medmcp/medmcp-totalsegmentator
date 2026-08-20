@@ -2,10 +2,17 @@ name: Image
 
 # Builds this stack's image for BOTH architectures and publishes a multi-arch tag.
 #
-# ─── Adapting this for your stack ────────────────────────────────────────────────
-# Change STACK below to your stack's short name (the part after ghcr.io/medmcp/),
-# and update the tool name asserted in the smoke test. Nothing else should need
-# editing for a CPU stack. For a GPU stack, see the notes at the bottom.
+# ─── GPU stack: adapted from the template default ────────────────────────────────
+# This image is very large (a cu128 torch/CUDA stack plus ~8.8 GiB of baked
+# TotalSegmentator weights across 42 datasets), so it follows the template's own
+# GPU guidance rather than the CPU default:
+#   * pushes directly instead of `load: true` — loading materialises the image a
+#     second time on the runner disk, which does not fit;
+#   * uses a registry build cache with mode=min, not the GHA cache (capped ~10 GB);
+#   * verifies the label and architecture registry-side via `buildx imagetools`,
+#     which reads the manifest without pulling the layers.
+# The consequence is that the tool-registration smoke test cannot run here — see the
+# note on that step below.
 # ─────────────────────────────────────────────────────────────────────────────────
 #
 # On push to main: build on a NATIVE runner per architecture, smoke-test each
@@ -52,7 +59,7 @@ concurrency:
 
 env:
   # CHANGE ME: your stack's short name, i.e. ghcr.io/medmcp/<STACK>
-  STACK: template
+  STACK: totalsegmentator
 
 jobs:
   image:
@@ -69,12 +76,29 @@ jobs:
             runner: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v7
-      # Hosted runners ship ~25 GB of preinstalled toolchains. Stack images are
-      # large, and `load: true` materialises the image twice, so reclaim first.
+      # Record what this runner actually has, so a build that dies with no failing
+      # step still leaves the resource picture on record next to the failure.
+      - name: Runner resources
+        run: |
+          echo "arch: $(uname -m)  cores: $(nproc)"
+          free -h || true
+          df -h / | tail -1
+      # Hosted runners ship ~25 GB of preinstalled toolchains. This image is larger
+      # than any other stack's (cu128 torch plus ~8.8 GiB of baked weights) and the
+      # export-for-push needs a lot of free space, so reclaim aggressively — the
+      # default dotnet/android/toolcache sweep is not enough for medmcp-neuro-core
+      # and this is bigger still.
       - name: Free disk space
         run: |
-          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android "${AGENT_TOOLSDIRECTORY:-/opt/hostedtoolcache}" || true
-          df -h /
+          echo "before:"; df -h /
+          sudo rm -rf \
+            /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache \
+            /usr/local/.ghcup /usr/share/swift /usr/local/share/boost /opt/az \
+            /usr/local/share/powershell /usr/share/miniconda /usr/local/graalvm \
+            "${AGENT_TOOLSDIRECTORY:-/opt/hostedtoolcache}" || true
+          sudo docker image prune -af || true
+          sudo apt-get clean || true
+          echo "after:"; df -h /
       - uses: docker/setup-buildx-action@v4
       # Login on every event — needed to pull the private base, even for PR builds.
       - uses: docker/login-action@v4
@@ -86,56 +110,67 @@ jobs:
       # Arch-suffixed tags are an internal handoff to the merge job — nothing
       # outside this workflow should consume them.
       - uses: docker/build-push-action@v7
+        env:
+          # Stream progress: a runner that dies mid-build (disk, OOM) otherwise
+          # produces no log at all, which makes it undiagnosable.
+          BUILDKIT_PROGRESS: plain
         with:
           context: .
-          load: true
-          push: false
+          push: ${{ github.event_name != 'pull_request' }}
           build-args: |
             BASE_IMAGE=ghcr.io/medmcp/base:main
           tags: |
             ghcr.io/medmcp/${{ env.STACK }}:${{ github.sha }}-${{ matrix.arch }}
             ghcr.io/medmcp/${{ env.STACK }}:main-${{ matrix.arch }}
-          # Scope the cache per arch, or the two legs evict each other's layers.
-          # Drop caching entirely if your image exceeds the ~10 GB Actions cache cap.
-          cache-from: type=gha,scope=${{ matrix.arch }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.arch }}
-      # Smoke test: the installed package must launch and register its tools.
-      # Runs natively on each arch, so an arm64-only import failure (a dependency
-      # with no aarch64 wheel, say) is caught here rather than at install time.
-      # CHANGE ME: assert your own tool names.
-      - name: Smoke test (tool registration)
-        run: |
-          docker run --rm --entrypoint python \
-            ghcr.io/medmcp/${{ env.STACK }}:main-${{ matrix.arch }} -c "
-          import asyncio
-          from medmcp_template.server import mcp
-          names = [t.name for t in asyncio.run(mcp.list_tools())]
-          print('registered tools:', names)
-          assert 'add_numbers' in names, names
-          "
-      # The discovery label must parse — the core reads it to build the launch
-      # recipe, and a malformed label makes the stack uninstallable.
+          # A dedicated registry ref with mode=min, matching medmcp-neuro-core: the
+          # GHA cache is capped around 10 GB and this image is far past that, and
+          # mode=max exports a second copy of every layer onto the runner disk. Keeping
+          # the cache in the same GHCR repository means the blobs are shared with the
+          # image rather than duplicated. A missing ref is a warning, not a failure,
+          # so the first build simply populates it.
+          #
+          # The weight-baking layer is the expensive one (~8.8 GiB of downloads), and
+          # its cache key is the source copy above it — so any change that leaves
+          # src/ alone reuses it instead of re-downloading 42 archives.
+          cache-from: type=registry,ref=ghcr.io/medmcp/${{ env.STACK }}:buildcache-${{ matrix.arch }}
+          # Only a push can write the cache; a PR build has nothing to export.
+          cache-to: ${{ github.event_name != 'pull_request' && format('type=registry,ref=ghcr.io/medmcp/{0}:buildcache-{1},mode=min', env.STACK, matrix.arch) || '' }}
+      # NOTE: the template's in-CI tool-registration smoke test is deliberately absent.
+      # It needs `load: true`, which this image is too large for. The import risk it
+      # covers — an arm64-only failure from a dependency with no aarch64 wheel — is
+      # instead covered up front: every dependency in the closure resolves to a
+      # pure-Python or linux-aarch64 wheel (nothing compiles from source on aarch64),
+      # and `just check` exercises server start-up and tool registration on every PR.
+      # If a way to smoke-test a pushed image cheaply appears, add it back here.
+      #
+      # The discovery label must parse — the core reads it to build the launch recipe,
+      # and a malformed label makes the stack uninstallable. Read registry-side so it
+      # costs a manifest fetch rather than a multi-gigabyte pull.
       - name: Check stack label
+        if: ${{ github.event_name != 'pull_request' }}
         run: |
-          docker inspect --format '{{ index .Config.Labels "org.medmcp.stack" }}' \
-            ghcr.io/medmcp/${{ env.STACK }}:main-${{ matrix.arch }} | tee /tmp/label.json
-          python -c "import json; d=json.load(open('/tmp/label.json')); assert d['name'], d"
+          docker buildx imagetools inspect \
+            "ghcr.io/medmcp/${{ env.STACK }}:main-${{ matrix.arch }}" \
+            --format '{{ json .Image.Config.Labels }}' | tee /tmp/labels.json
+          python -c "
+          import json
+          labels = json.load(open('/tmp/labels.json'))
+          stack = json.loads(labels['org.medmcp.stack'])
+          assert stack['name'] == 'medmcp-totalsegmentator', stack
+          assert stack['gpu'] is True, stack
+          print('stack label ok:', stack)
+          "
       # Verify the leg really built the architecture it claims — a mislabelled leg
       # would produce a manifest list uninstallable on one platform.
       - name: Check image architecture
-        run: |
-          got=$(docker image inspect \
-                  ghcr.io/medmcp/${{ env.STACK }}:main-${{ matrix.arch }} \
-                  --format '{{.Architecture}}')
-          echo "built: $got, expected: ${{ matrix.arch }}"
-          [ "$got" = "${{ matrix.arch }}" ] \
-            || { echo "::error::image is $got, expected ${{ matrix.arch }}"; exit 1; }
-      - name: Push to GHCR
         if: ${{ github.event_name != 'pull_request' }}
         run: |
-          docker push ghcr.io/medmcp/${{ env.STACK }}:${{ github.sha }}-${{ matrix.arch }}
-          docker push ghcr.io/medmcp/${{ env.STACK }}:main-${{ matrix.arch }}
-
+          got=$(docker buildx imagetools inspect \
+                  "ghcr.io/medmcp/${{ env.STACK }}:main-${{ matrix.arch }}" \
+                  --format '{{.Image.Platform.Architecture}}')
+          echo "pushed: $got, expected: ${{ matrix.arch }}"
+          [ "$got" = "${{ matrix.arch }}" ] \
+            || { echo "::error::image is $got, expected ${{ matrix.arch }}"; exit 1; }
   # Runs once, after BOTH arches have pushed. Merging the per-arch images into a
   # manifest list is what makes the bare tag multi-arch; without this job the
   # suffixed tags exist but ghcr.io/medmcp/<stack>:main would not.

@@ -2,8 +2,8 @@
 
 import pytest
 
-from medmcp_template import __version__
-from medmcp_template.server import mcp
+from medmcp_totalsegmentator import __version__
+from medmcp_totalsegmentator.server import mcp
 
 
 def test_version_is_string() -> None:
@@ -28,7 +28,7 @@ def test_server_config_satisfies_autodiscovery() -> None:
     """
     from pathlib import Path
 
-    from medmcp_template.server import server_config
+    from medmcp_totalsegmentator.server import server_config
 
     cfg = server_config()
 
