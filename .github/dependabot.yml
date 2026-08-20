@@ -20,3 +20,10 @@ updates:
       # therefore the minimum driver, which is a fleet capacity decision, not
       # routine maintenance. Raise the pin deliberately, here, when the floor moves.
       - dependency-name: "torch"
+      # mcp is capped below 2.0 on purpose: 2.x moved FastMCP out of
+      # `mcp.server.fastmcp`, which this server imports, and every other medmcp
+      # stack is on 1.x. Dependabot cannot see that — it proposed widening the cap
+      # to <3 on day one, which CI accepted only because the existing lock still
+      # satisfied it. Lift this across the ecosystem deliberately, not per repo.
+      - dependency-name: "mcp"
+        update-types: ["version-update:semver-major"]
