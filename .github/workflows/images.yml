@@ -34,10 +34,30 @@ name: Image
 #
 # NOTE: ubuntu-24.04-arm is free for public repos; private repos need a paid Team
 # or Enterprise plan. Without one, swap that runner for a self-hosted aarch64 one.
+# Building this image is expensive — two native runners, a multi-gigabyte CUDA/torch
+# install and ~9.6 GB of weights per arch — so it only runs when something that can
+# actually change the image changes. A README or test-only commit does not rebuild it,
+# which also means :main keeps pointing at the last commit that genuinely produced it.
 on:
   push:
     branches: [main]
+    # Kept in step with the pull_request list below by hand: GitHub Actions does not
+    # support YAML anchors, so the duplication is unavoidable.
+    paths:
+      - 'Dockerfile'
+      - '.dockerignore'
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - 'src/**'
+      - '.github/workflows/images.yml'
   pull_request:
+    paths:
+      - 'Dockerfile'
+      - '.dockerignore'
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - 'src/**'
+      - '.github/workflows/images.yml'
   workflow_dispatch:
 
 permissions:
@@ -63,6 +83,10 @@ env:
 
 jobs:
   image:
+    # Dependency bumps touch uv.lock, so they match the path filter above and would
+    # otherwise spend two full image builds per bot PR. CI already type-checks and
+    # tests the bump, and the image is rebuilt on merge to main anyway.
+    if: github.actor != 'dependabot[bot]'
     runs-on: ${{ matrix.runner }}
     strategy:
       # Don't cancel the sibling arch on failure — a broken arm64 build should

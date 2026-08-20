@@ -121,7 +121,9 @@ Full third-party attribution belongs in [`NOTICE`](NOTICE).
   (1.5 mm) is roughly a minute on a modern GPU; on CPU it runs into many minutes, so
   prefer `speed="fast"` or a `structures` subset there. The tool reports the resolved
   device and warns when it falls back to CPU.
-- Disk: the image carries ~8.8 GiB of weights on top of the shared CUDA base.
+- Disk: the image is large — about 21.5 GB, most of it the CUDA/PyTorch stack and
+  ~9.8 GB of model weights. It carries only what segmentation needs: TotalSegmentator's
+  preview-rendering, HTML-reporting and radiomics dependencies are not installed.
 - The discovery tools (`list_*`, `find_structures`) are pure data lookups — no GPU, no
   model load.
 - **Runs fully offline.** Every model is baked into the image, nothing is downloaded at

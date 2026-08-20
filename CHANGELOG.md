@@ -50,6 +50,18 @@ networking denied.
   evaluated for linux/aarch64 and fails if any package that architecture actually
   needs has no aarch64 wheel and no sdist — checking each package's *latest* release on
   PyPI does not catch this, because a transitive cap can pin an older version.
+- The image no longer carries TotalSegmentator's preview-rendering, HTML-reporting and
+  radiomics dependencies (vtk, fury, dipy, pyarrow and friends), which the segmentation
+  path never imports. Together with the graphics libraries they needed, that takes the
+  image from 22.3 GB to 21.5 GB. They cannot be resolved away, because
+  TotalSegmentator declares them as hard requirements, so they are removed after
+  install; a test blocks them and imports the segmentation chain, so an upstream
+  release that starts using one fails CI rather than the image build. matplotlib and
+  the DICOM packages stay: nnU-Net's trainer and TotalSegmentator's `nnunet` module
+  import them at module scope.
+- The image workflow no longer rebuilds on commits that cannot change the image (docs,
+  tests), and skips dependency-bump pull requests, which were each spending two full
+  multi-gigabyte builds.
 - A one-line code change no longer re-downloads all 9.6 GB of weights when building the
   image. The weight-baking layer now depends only on the module that decides which
   weights are needed, rather than on the whole source tree.

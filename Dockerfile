@@ -14,13 +14,10 @@ FROM ${BASE_IMAGE} AS runtime
 # by executing the image).
 LABEL org.medmcp.stack='{"name": "medmcp-totalsegmentator", "gpu": true, "tool_timeout_sec": 7200, "skills_path": "/app/src/medmcp_totalsegmentator/skills"}'
 
-# libgomp1 is needed by torch/scikit-image OpenMP paths; libgl1 + libglib2.0-0 by the
-# vtk/fury import chain TotalSegmentator pulls in (it imports them even on code paths
-# that never render, so a missing libGL is an ImportError at tool call time).
+# libgomp1 is needed by the torch/scikit-image OpenMP paths. No libgl1/libglib2.0-0:
+# those are only needed by the vtk import chain, which is pruned below.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         libgomp1 \
-        libgl1 \
-        libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
 # Trust extra CA certs at build time behind a TLS-intercepting (MITM) proxy so
@@ -33,12 +30,31 @@ ENV UV_NATIVE_TLS=1
 
 WORKDIR /app
 
-# Frozen install from the committed lock (build-time network; runtime offline).
-# Dependencies only, and before the source is copied, so editing one line of Python
-# does not redo the multi-GB torch install.
+# Dependencies, and the removal of the ones this stack never uses, in a SINGLE layer.
+#
+# The pruning has to share a layer with the install. Docker layers are additive, so
+# uninstalling in a later layer reclaims nothing — it writes a whiteout over bytes that
+# stay in the image, and the result is marginally *larger*. (A builder stage would also
+# work, but it needs the whole environment twice on disk at once, which is a real
+# constraint for an image this size.)
+#
+# What goes: TotalSegmentator's preview-rendering, HTML-reporting and radiomics
+# dependencies — vtk alone is 341 MB. None is reachable from the segmentation path.
+# They cannot be resolved away, because TotalSegmentator declares them as hard
+# requirements.
+#
+# The list is empirically derived, and two candidates had to be put back: matplotlib
+# (nnU-Net's trainer imports it at module scope) and the DICOM packages
+# (totalsegmentator.nnunet imports dicom_io at module scope, though nothing here reads
+# DICOM). tests/test_pruned_deps.py reads this list, blocks the modules and imports the
+# segmentation chain, so an upstream release that starts importing one fails CI rather
+# than the image.
+# PRUNED-PACKAGES: vtk fury pygltflib dipy pyarrow xvfbwrapper imgkit xmltodict
 COPY pyproject.toml uv.lock README.md LICENSE ./
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --no-install-project \
+ && uv pip uninstall --python /app/.venv/bin/python \
+        vtk fury pygltflib dipy pyarrow xvfbwrapper imgkit xmltodict \
  && find /app/.venv -name '__pycache__' -type d -prune -exec rm -rf {} + \
  && find /app/.venv -name '*.a' -delete
 
@@ -89,7 +105,7 @@ RUN printf '%s\n' '#!/bin/sh' \
 # loaded from that file directly (it imports nothing of ours — only TotalSegmentator's
 # pure-data maps). That keeps this layer's cache key to the one file that decides which
 # weights are needed: with `COPY src` above it, editing any line of Python anywhere in
-# the package re-downloaded all 9.6 GB.
+# the package re-downloaded all 9.8 GB.
 COPY src/medmcp_totalsegmentator/tools/_catalog.py /tmp/catalog_probe.py
 RUN /app/.venv/bin/python -c \
         "import importlib.util as u; s = u.spec_from_file_location('catalog_probe', '/tmp/catalog_probe.py'); m = u.module_from_spec(s); s.loader.exec_module(m); print('\n'.join(str(i) for i in m.weight_dataset_ids()))" \
@@ -102,15 +118,19 @@ RUN /app/.venv/bin/python -c \
             "${id}"; \
     done < /tmp/weight_ids.txt \
  && rm -f /tmp/weight_ids.txt /tmp/catalog_probe.py \
- && find "${TOTALSEG_HOME_DIR}" -name '*.zip' -delete \
- && find /app/.venv -name '__pycache__' -type d -prune -exec rm -rf {} +
+ && find "${TOTALSEG_HOME_DIR}" -name '*.zip' -delete
 
 # The source, and the project itself, last: everything above depends only on the lock
-# and on _catalog.py, so a code change now rebuilds seconds of work instead of
-# re-fetching every weight archive.
+# and on _catalog.py, so a code change rebuilds seconds of work instead of re-fetching
+# every weight archive.
+#
+# --no-deps, not `uv sync`: a sync would reconcile the environment against the lock and
+# faithfully reinstall everything pruned above. The dependencies are already installed
+# from that same lock, so only this package needs adding.
 COPY src ./src
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev
+    uv pip install --no-deps --python /app/.venv/bin/python . \
+ && find /app/.venv -name '__pycache__' -type d -prune -exec rm -rf {} +
 
 ENV PATH=/app/.venv/bin:$PATH \
     UV_NO_SYNC=1
