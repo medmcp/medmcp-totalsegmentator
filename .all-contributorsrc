@@ -1,5 +1,5 @@
 {
-  "projectName": "medmcp-template",
+  "projectName": "medmcp-totalsegmentator",
   "projectOwner": "medmcp",
   "repoType": "github",
   "repoHost": "https://github.com",
@@ -11,6 +11,18 @@
   "commitConvention": "angular",
   "contributorsPerLine": 7,
   "contributorsSortAlphabetically": false,
-  "contributors": [],
+  "contributors": [
+    {
+      "login": "pfriedri",
+      "name": "Paul Friedrich",
+      "avatar_url": "https://avatars.githubusercontent.com/u/101359393?v=4",
+      "profile": "https://pfriedri.github.io",
+      "contributions": [
+        "code",
+        "doc",
+        "review"
+      ]
+    }
+  ],
   "commitType": "docs"
 }

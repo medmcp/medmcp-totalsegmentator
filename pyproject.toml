@@ -9,8 +9,8 @@ description = "Whole-body CT and MR anatomy segmentation (TotalSegmentator) for 
 readme = "README.md"
 license = { file = "LICENSE" }
 authors = [
-    { name = "Julian McGinnis", email = "julian.mcginnis@tum.de" },
     { name = "Paul Friedrich", email = "paul.friedrich@unibas.ch" },
+    { name = "Julian McGinnis", email = "julian.mcginnis@tum.de" },
 ]
 classifiers = [
     "Development Status :: 3 - Alpha",

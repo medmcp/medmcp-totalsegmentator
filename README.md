@@ -1,9 +1,14 @@
 # medmcp-totalsegmentator
 
-Whole-body anatomy segmentation for the [medmcp](https://github.com/medmcp) ecosystem —
-a **distributable Python package** exposing [TotalSegmentator](https://github.com/wasserth/TotalSegmentator)
-as an **MCP (Model Context Protocol) server** over stdio. A local LLM invokes the
-registered tools by name to segment structures on CT and MR volumes.
+Whole-body anatomy segmentation for the [medmcp](https://github.com/medmcp) ecosystem. Exposes an **MCP (Model Context Protocol) server** over stdio that an LLM agent can invoke to segment anatomical structures on CT and MR images, and to measure their volumes. Wraps [TotalSegmentator](https://github.com/wasserth/TotalSegmentator).
+
+<p align="center">
+  <a href="https://medmcp.ai"><b>medmcp.ai</b></a> ·
+  <a href="https://github.com/medmcp/medmcp">Main repository</a>
+</p>
+
+> [!NOTE]
+> **This repository is for developers** who build, extend, or run the TotalSegmentator stack from source. **If you just want to use MedMCP, you don't need this repo** — install the MedMCP app and add this stack through the workspace UI (one-click install). See [medmcp.ai](https://medmcp.ai) or the [main repository](https://github.com/medmcp/medmcp) to get started.
 
 > [!WARNING]
 > MedMCP and its ecosystem are research software under active development and are
@@ -25,6 +30,16 @@ Segmentation runs in a **subprocess**. TotalSegmentator prints to stdout
 unconditionally, and stdout belongs to the MCP framing — in-process, its banner would
 corrupt the session. It also keeps the server's import free of torch, so tool
 discovery answers in well under a second instead of racing the agent's start-up budget.
+
+## Skill inventory
+
+Skills are SKILL.md files the agent loads on demand to follow multi-step workflows. They are bundled under `src/medmcp_totalsegmentator/skills/` and discovered automatically via `server_config()`.
+
+| Skill name | Description |
+|---|---|
+| `segment-anatomy` | Workflow for anatomy segmentation and structure volumetry. Covers resolving a named structure to a task before running anything (several tasks segment the same anatomy at different scope), matching CT/MR modality, narrowing a whole-body run with `structures`, and reading a volume out of the CSV in mm³. |
+
+---
 
 ### Bundled tools
 
@@ -63,6 +78,16 @@ that every bundled weights URL points at the public GitHub release. The containe
 build reads its download list from that same module, so the image cannot ship a
 different set than the tools offer.
 
+### Telemetry is disabled
+
+Upstream POSTs anonymous run metadata (platform, Python version, CUDA availability,
+task, license number) to `stats.totalsegmentator.com`, and offers no environment
+variable to turn it off — the config file is the only lever. The image writes
+`send_usage_stats: false` at build time, and the subprocess runner re-asserts it at
+run time for host-native development. Container stacks also run `--network none`, but
+the send is wrapped in `try/except` and so fails *silently*, which makes the sandbox
+alone the wrong thing to rely on.
+
 ### Citation
 
 Results produced with this stack should cite the underlying work, not this package:
@@ -89,24 +114,6 @@ Full third-party attribution belongs in [`NOTICE`](NOTICE).
 - Disk: the image carries ~8.8 GiB of weights on top of the shared CUDA base.
 - The discovery tools (`list_*`, `find_structures`) are pure data lookups — no GPU, no
   model load.
-
-### Telemetry is disabled
-
-Upstream POSTs anonymous run metadata (platform, Python version, CUDA availability,
-task, license number) to `stats.totalsegmentator.com`, and offers no environment
-variable to turn it off — the config file is the only lever. The image writes
-`send_usage_stats: false` at build time, and the subprocess runner re-asserts it at
-run time for host-native development. Container stacks also run `--network none`, but
-the send is wrapped in `try/except` and so fails *silently*, which makes the sandbox
-alone the wrong thing to rely on.
-
----
-
-## Skill inventory
-
-| Skill | What it is for |
-|---|---|
-| `segment-anatomy` | Choosing the right task for the anatomy asked about, matching modality, and reporting structure volumes |
 
 ---
 
@@ -170,6 +177,17 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). Short version: fork, `just setup`, `just
 <!-- ALL-CONTRIBUTORS-LIST:START - Do not remove or modify this section -->
 <!-- prettier-ignore-start -->
 <!-- markdownlint-disable -->
+<table>
+  <tbody>
+    <tr>
+      <td align="center" valign="top" width="14.28%"><a href="https://pfriedri.github.io"><img src="https://avatars.githubusercontent.com/u/101359393?v=4?s=100" width="100px;" alt="Paul Friedrich"/><br /><sub><b>Paul Friedrich</b></sub></a><br /><a href="https://github.com/medmcp/medmcp-totalsegmentator/commits?author=pfriedri" title="Code">💻</a> <a href="https://github.com/medmcp/medmcp-totalsegmentator/commits?author=pfriedri" title="Documentation">📖</a> <a href="https://github.com/medmcp/medmcp-totalsegmentator/pulls?q=is%3Apr+reviewed-by%3Apfriedri" title="Reviewed Pull Requests">👀</a></td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- markdownlint-restore -->
+<!-- prettier-ignore-end -->
+
 <!-- ALL-CONTRIBUTORS-LIST:END -->
 
 This project follows the [all-contributors](https://allcontributors.org) specification — contributions of any kind are welcome!
