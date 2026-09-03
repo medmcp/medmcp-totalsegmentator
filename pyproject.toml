@@ -32,7 +32,7 @@ dependencies = [
     # Capped below 2.0: mcp 2.x moved FastMCP out of `mcp.server.fastmcp`, which every
     # medmcp stack imports. Lift the cap across the ecosystem at once, not here alone --
     # the core talks to all stacks through the same protocol version.
-    "mcp>=1.9,<2",
+    "mcp>=1.9,<3",
     "nibabel>=5",
     "numpy>=1.24",
     # TotalSegmentator itself is Apache-2.0, as are the pretrained weights for every
