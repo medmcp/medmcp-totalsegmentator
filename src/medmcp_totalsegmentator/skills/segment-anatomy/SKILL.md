@@ -35,7 +35,8 @@ cover anatomy the whole-body models miss or segment less well.
    minute to many minutes.
 4. **Report the requested structure.** When the user asked for a specific volume, read
    the CSV at `volumes_path` and report the matching rows (values in **mm³**). Offer
-   the full CSV rather than dumping every row.
+   the full CSV rather than dumping every row. A row with `at_border = true` is cut off
+   by the edge of the scan: say so, and give its volume as a lower bound.
 
 ## Narrowing a whole-body run
 

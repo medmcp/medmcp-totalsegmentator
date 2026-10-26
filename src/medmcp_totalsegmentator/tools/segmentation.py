@@ -86,33 +86,45 @@ def _write_labels_csv(path: Path, task: str) -> Path:
     return path
 
 
-def _write_volumes_csv(statistics_path: Path, destination: Path) -> Path | None:
+def _write_volumes_csv(statistics_path: Path, destination: Path) -> tuple[Path, list[str]] | None:
     """Convert TotalSegmentator's statistics.json into a volumes CSV.
 
     Upstream records volume in mm^3 and a mean/median intensity per structure. The
     CSV keeps both and drops structures with zero volume, which are simply the
-    classes the model did not find in this field of view.
+    classes the model did not find in this field of view. ``at_border`` marks a
+    structure cut off by the edge of the scan: its volume covers only the part inside.
 
     Returns:
-        The CSV path, or ``None`` if the statistics file was unreadable.
+        The CSV path and the cut-off structures, or ``None`` if the statistics file
+        was unreadable.
     """
     try:
         raw: dict[str, Any] = json.loads(statistics_path.read_text())
     except (OSError, json.JSONDecodeError):
         return None
-    rows: list[tuple[str, float, float]] = []
+    rows: list[tuple[str, float, float, bool]] = []
     for name, values in sorted(raw.items()):
         if not isinstance(values, dict):
             continue
-        stats = cast(dict[str, float], values)
+        stats = cast(dict[str, Any], values)
         volume = float(stats.get("volume", 0.0))
         if volume > 0.0:
-            rows.append((name, volume, float(stats.get("intensity", 0.0))))
+            at_border = bool(stats.get("at_border", False))
+            rows.append((name, volume, float(stats.get("intensity", 0.0)), at_border))
     with destination.open("w", newline="") as handle:
         writer = csv.writer(handle)
-        writer.writerow(["structure", "volume_mm3", "intensity_mean"])
-        writer.writerows(rows)
-    return destination
+        writer.writerow(["structure", "volume_mm3", "intensity_mean", "at_border"])
+        writer.writerows((n, v, i, str(b).lower()) for n, v, i, b in rows)
+    return destination, [row[0] for row in rows if row[3]]
+
+
+def _border_warning(cut: list[str]) -> str:
+    """The warning for structures cut off by the edge of the scan."""
+    named = ", ".join(cut) if len(cut) <= 5 else f"{len(cut)} structures"
+    return (
+        f"{named} reach the edge of the scan and are only partly inside it (at_border in "
+        "the volume CSV): their volumes are lower bounds, not whole-organ volumes."
+    )
 
 
 def segment_anatomy(
@@ -234,7 +246,11 @@ def segment_anatomy(
 
         volumes_path: Path | None = None
         if statistics_path and statistics_path.exists():
-            volumes_path = _write_volumes_csv(statistics_path, destination / f"{stem}_volumes.csv")
+            written_csv = _write_volumes_csv(statistics_path, destination / f"{stem}_volumes.csv")
+            if written_csv is not None:
+                volumes_path, cut = written_csv
+                if cut:
+                    warnings.append(_border_warning(cut))
 
     labels_path: Path | None = None
     if multilabel:

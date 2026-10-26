@@ -42,6 +42,8 @@ networking denied.
 
 ### Fixed
 
+- Organs cut off by the edge of the scan were missing from the volume CSV; they are now
+  listed with their measured volume, `at_border = true` and a warning that it is a lower bound.
 - The arm64 image could not be built at all. TotalSegmentator requires `fury<2`, whose
   newest release caps `vtk` below 9.4 — and vtk only began publishing linux-aarch64
   wheels at 9.5.0, so the arm64 leg failed during dependency install. The cap is now
