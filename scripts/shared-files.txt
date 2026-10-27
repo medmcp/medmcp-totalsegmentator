@@ -20,6 +20,9 @@
 #       — template-derived, but carry the stack's name and its build deps.
 #   .github/ISSUE_TEMPLATE/config.yml
 #       — points at the repo's own Discussions.
+#   LICENSE
+#       — each stack's own choice. Most are Apache-2.0; stacks that build on GPL
+#         libraries (medmcp-stats, medmcp-cohort use pingouin) are GPL-3.0.
 #   .github/dependabot.yml
 #       — dependency policy is per-repo. medmcp-neuro-core ignores torch and
 #         torchvision because their version sets the fleet's minimum GPU driver;
@@ -29,7 +32,6 @@
 .pre-commit-config.yaml
 .python-version
 CODE_OF_CONDUCT.md
-LICENSE
 SECURITY.md
 .github/ISSUE_TEMPLATE/bug_report.yml
 .github/ISSUE_TEMPLATE/feature_request.yml
