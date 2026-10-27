@@ -49,7 +49,7 @@ def _fake_run(
                 Path(stats_path).write_text(
                     json.dumps(
                         {
-                            "liver": {"volume": 1500.0, "intensity": 55.2},
+                            "liver": {"volume": 1500.0, "intensity": 55.2, "at_border": True},
                             "spleen": {"volume": 200.0, "intensity": 48.0},
                             "aorta": {"volume": 0.0, "intensity": 0.0},
                         }
@@ -112,6 +112,32 @@ def test_successful_run_writes_multilabel_labels_and_volumes(
     assert vrows[0].keys() >= {"structure", "volume_mm3", "intensity_mean"}
     names = {row["structure"] for row in vrows}
     assert names == {"liver", "spleen"}, "zero-volume structures should be dropped"
+    cut = {row["structure"]: row["at_border"] for row in vrows}
+    assert cut == {"liver": "true", "spleen": "false"}
+    assert any("liver reach the edge of the scan" in w for w in result["warnings"])
+
+
+def test_structures_in_the_edge_slices_are_cut_off(tmp_path: Path) -> None:
+    """The same rule as upstream's touches_border: any voxel in the outer three slices."""
+    nib = pytest.importorskip("nibabel")
+    np = pytest.importorskip("numpy")
+    pytest.importorskip("totalsegmentator")
+    from medmcp_totalsegmentator.tools import _run_totalseg
+
+    data = np.zeros((20, 20, 20), dtype=np.uint8)
+    data[8:12, 8:12, 8:12] = 1  # spleen, well inside
+    data[8:12, 8:12, 1:6] = 5  # liver, reaching the lowest slices
+    data[17, 8:12, 8:12] = 2  # kidney_right, in the third slice from the top
+    path = tmp_path / "ct_dseg.nii.gz"
+    nib.save(nib.Nifti1Image(data, np.eye(4)), path)
+    cut = _run_totalseg.border_structures(path, multilabel=True, task="total")
+    assert cut == {"liver", "kidney_right"}
+
+    masks = tmp_path / "ct_seg"
+    masks.mkdir()
+    nib.save(nib.Nifti1Image((data == 5).astype(np.uint8), np.eye(4)), masks / "liver.nii.gz")
+    nib.save(nib.Nifti1Image((data == 1).astype(np.uint8), np.eye(4)), masks / "spleen.nii.gz")
+    assert _run_totalseg.border_structures(masks, multilabel=False, task="total") == {"liver"}
 
 
 def test_request_payload_matches_the_requested_options(

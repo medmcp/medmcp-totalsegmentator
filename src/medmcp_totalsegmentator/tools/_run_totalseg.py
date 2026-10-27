@@ -58,6 +58,50 @@ def _written_structures(output: Path, multilabel: bool) -> list[str]:
     return names
 
 
+# How far from the edge a structure counts as cut off by the field of view: upstream's
+# ``touches_border`` checks the outer three slices on every side.
+_BORDER_SLICES = 3
+
+
+def border_structures(output: Path, multilabel: bool, task: str) -> set[str]:
+    """Structures with voxels in the outer slices of the volume, i.e. cut off by it.
+
+    The same rule as upstream's ``touches_border``, but read off the six edge slabs
+    at once instead of per structure.
+    """
+    import nibabel as nib
+    import numpy as np
+
+    def edge_values(data: "np.ndarray") -> set[int]:
+        n = _BORDER_SLICES
+        slabs = (data[:n], data[-n:], data[:, :n], data[:, -n:], data[:, :, :n], data[:, :, -n:])
+        return {int(v) for slab in slabs for v in np.unique(slab)} - {0}
+
+    if multilabel:
+        from totalsegmentator.map_to_binary import class_map
+
+        names: dict[int, str] = class_map.get(task, {})
+        data = np.asarray(nib.load(output).dataobj)
+        return {names[i] for i in edge_values(data) if i in names}
+    cut: set[str] = set()
+    for path in sorted(output.glob("*.nii.gz")):
+        if edge_values(np.asarray(nib.load(path).dataobj) > 0):
+            cut.add(path.name[: -len(".nii.gz")])
+    return cut
+
+
+def _mark_border_structures(
+    statistics_path: Path, output: Path, multilabel: bool, task: str
+) -> None:
+    """Add ``at_border`` to every structure in the statistics file."""
+    stats = json.loads(statistics_path.read_text())
+    cut = border_structures(output, multilabel, task)
+    for name, values in stats.items():
+        if isinstance(values, dict):
+            values["at_border"] = name in cut
+    statistics_path.write_text(json.dumps(stats))
+
+
 def main() -> int:
     """Run one segmentation described by the request file. Returns a process exit code."""
     if len(sys.argv) != 3:
@@ -87,11 +131,17 @@ def main() -> int:
             device=request["device"],
             roi_subset=request.get("roi_subset"),
             statistics=Path(statistics_path) if statistics_path else False,
+            # A structure cut off by the field of view keeps its measured volume
+            # (upstream reports 0); _mark_border_structures flags it instead.
+            statistics_exclude_masks_at_border=False,
             body_seg=bool(request.get("body_seg", False)),
             force_split=bool(request.get("force_split", False)),
             quiet=True,
             skip_saving=False,
         )
+
+    if statistics_path and Path(statistics_path).exists():
+        _mark_border_structures(Path(statistics_path), output, multilabel, request["task"])
 
     result = {
         "output": str(output),
