@@ -30,9 +30,12 @@ cover anatomy the whole-body models miss or segment less well.
    intensity range and returns a `warnings` entry if it looks like the wrong
    modality, but it does **not** block: relay the warning and confirm before
    accepting the result.
-3. **Run `segment_anatomy`** with `device="auto"`. Check the resolved `device` in the
-   result — if it fell back to `cpu`, say so, because runtime changes from about a
-   minute to many minutes.
+3. **Run `segment_anatomy`** with `device="auto"` and the default
+   `speed="standard"` (full resolution, 1.5 mm for `total`/`total_mr`); use `"fast"`
+   or `"fastest"` only when the user asked for a quick result. Check the resolved
+   `device` in the result — if it fell back to `cpu`, say so, because runtime changes
+   from about a minute to many minutes. Always say which resolution produced the
+   result (`speed`, `resolution_mm`).
 4. **Report the requested structure.** When the user asked for a specific volume, read
    the CSV at `volumes_path` and report the matching rows (values in **mm³**). Offer
    the full CSV rather than dumping every row. A row with `at_border = true` is cut off
@@ -67,5 +70,9 @@ already specific.
   structures, coronary arteries, face masking, and the non-commercial aneurysm
   model). Relay that verbatim — do not substitute a different task and present it as
   the thing that was asked for.
+- **Small field of view.** The whole-body models expect a body scan. For an image
+  smaller than 150 mm in two axes or 100 mm in any (`field_of_view_mm`; e.g. an 86 mm
+  prostate T2 slab) the result carries a warning: relay it, and when the volume
+  differs from a reference, name the small field of view as a likely reason.
 - **These are estimates, not clinical findings.** TotalSegmentator is not a medical
   device. Present output as a research measurement, and never as a diagnosis.

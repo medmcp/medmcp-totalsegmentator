@@ -15,12 +15,15 @@ from typing import Any, Literal, TypedDict, cast
 
 from medmcp_totalsegmentator.tools import _catalog
 from medmcp_totalsegmentator.tools._ts import (
+    WHOLE_BODY_RESOLUTION_MM,
     Device,
     Speed,
     cuda_unavailable_note,
+    field_of_view_mm,
     modality_warning,
     nii_stem,
     resolve_device,
+    small_fov_warning,
     to_totalseg_device,
 )
 
@@ -47,6 +50,8 @@ class SegmentationResult(TypedDict):
     structures: list[str]
     device: str
     speed: str
+    resolution_mm: float | None
+    field_of_view_mm: list[float] | None
     warnings: list[str]
     _render: str
 
@@ -164,7 +169,8 @@ def segment_anatomy(
         structures: Restrict a ``total``/``total_mr`` run to these structure names
             (exact matches). Speeds the run up considerably. ``None`` segments all.
         speed: ``"standard"`` (1.5 mm, best quality), ``"fast"`` (3 mm) or
-            ``"fastest"`` (6 mm, rough). Lower resolution loses small structures.
+            ``"fastest"`` (6 mm, rough). Lower resolution loses small structures; keep
+            the default unless the user asked for a quick result.
         device: ``"auto"`` (default), ``"cuda"``, ``"mps"`` or ``"cpu"``.
         separate_masks: Write one binary mask per structure instead of a single
             multilabel volume.
@@ -173,7 +179,9 @@ def segment_anatomy(
 
     Returns:
         Paths to the segmentation, the label lookup and the volume CSV, the structures
-        requested, the resolved device, and any warnings worth relaying.
+        requested, the resolved device, the model's resolution (``resolution_mm`` for
+        the whole-body tasks) and the input's ``field_of_view_mm``, and any warnings
+        worth relaying (among them a field of view much smaller than a body scan).
 
     Raises:
         FileNotFoundError: if ``input_path`` does not exist.
@@ -204,6 +212,11 @@ def segment_anatomy(
     contradiction = modality_warning(input_path, task, info["modality"])
     if contradiction:
         warnings.append(contradiction)
+    fov = field_of_view_mm(input_path)
+    small_fov = small_fov_warning(fov, task)
+    if small_fov:
+        warnings.append(small_fov)
+    resolution = WHOLE_BODY_RESOLUTION_MM[speed] if task in _ROI_SUBSET_TASKS else None
 
     stem = nii_stem(input_path)
     multilabel = not separate_masks
@@ -259,6 +272,13 @@ def segment_anatomy(
     written: list[str] = run_result.get("structures_written") or []
     reported = requested or written
     volumes_line = "  Volumes: <volumes_path>\n" if volumes_path else ""
+    model_line = (
+        f"  Model:  {speed} ({resolution:g} mm"
+        + (", low resolution" if resolution > WHOLE_BODY_RESOLUTION_MM["standard"] else "")
+        + ")\n"
+        if resolution is not None
+        else f"  Model:  {speed}\n"
+    )
     result: SegmentationResult = {
         "task": task,
         "modality": info["modality"],
@@ -271,6 +291,8 @@ def segment_anatomy(
         "structures": reported,
         "device": resolved,
         "speed": speed,
+        "resolution_mm": resolution,
+        "field_of_view_mm": fov,
         "warnings": warnings,
         "_render": (
             "DISPLAY RULES -- follow exactly:\n"
@@ -278,6 +300,7 @@ def segment_anatomy(
             "  Input:  <input_path>\n"
             "  Output: <segmentation_path>\n"
             "  Task:   <task> (<num_structures> structures, <modality>)\n"
+            f"{model_line}"
             f"{volumes_line}"
             "  Device: <device>\n"
             "Substitute values from the result dict. Omit internal keys. Do NOT list "
