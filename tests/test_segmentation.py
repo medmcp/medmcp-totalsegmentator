@@ -224,3 +224,52 @@ def test_volumes_csv_is_skipped_when_not_requested(
 def test_render_hint_is_present_and_mentions_warnings() -> None:
     """The _render contract drives how the agent reports the result."""
     assert "_render" in segmentation.SegmentationResult.__annotations__
+
+
+def _nifti(path: Path, shape: tuple[int, int, int], zooms: tuple[float, float, float]) -> Path:
+    """A real (blank) NIfTI with the given grid, so its header can be read."""
+    import nibabel as nib
+    import numpy as np
+
+    affine = np.diag([*zooms, 1.0])
+    image: Any = nib.Nifti1Image(np.zeros(shape, dtype=np.uint8), affine)  # pyright: ignore[reportUnknownMemberType]
+    nib.save(image, str(path))  # pyright: ignore[reportUnknownMemberType]
+    return path
+
+
+def test_a_prostate_slab_gets_a_field_of_view_warning(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The rehearsal case: a 200 x 200 x 86 mm T2 slab for total_mr."""
+    slab = _nifti(tmp_path / "prostate_T2.nii.gz", (32, 32, 6), (6.25, 6.25, 14.4))
+    monkeypatch.setattr(subprocess, "run", _fake_run({}))
+    result = segment_anatomy(slab, task="total_mr", device="cuda")
+    assert result["field_of_view_mm"] == [200.0, 200.0, 86.4]
+    assert any("200 x 200 x 86.4 mm" in w and "less reliable" in w for w in result["warnings"])
+    assert result["resolution_mm"] == 1.5
+    assert "standard (1.5 mm)" in result["_render"]
+
+
+def test_a_body_sized_volume_gets_no_field_of_view_warning(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A trunk-sized MR is what the model expects; a focused task is not checked at all."""
+    body = _nifti(tmp_path / "abdomen.nii.gz", (40, 40, 30), (10.0, 10.0, 10.0))
+    monkeypatch.setattr(subprocess, "run", _fake_run({}))
+    result = segment_anatomy(body, task="total_mr", device="cuda")
+    assert not any("covers only" in w for w in result["warnings"])
+    small = _nifti(tmp_path / "small.nii.gz", (10, 10, 10), (5.0, 5.0, 5.0))
+    focused = segment_anatomy(small, task="liver_segments", device="cuda")
+    assert not any("covers only" in w for w in focused["warnings"])
+    assert focused["resolution_mm"] is None
+
+
+def test_a_fast_run_says_it_is_low_resolution(
+    volume: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The speed variant is named in the result and in what the agent is told to show."""
+    monkeypatch.setattr(subprocess, "run", _fake_run({}))
+    result = segment_anatomy(volume, task="total_mr", speed="fastest", device="cuda")
+    assert result["resolution_mm"] == 6.0
+    assert "fastest (6 mm, low resolution)" in result["_render"]
+    assert result["field_of_view_mm"] is None  # the stand-in file has no header

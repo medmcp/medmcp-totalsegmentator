@@ -188,3 +188,60 @@ def modality_warning(input_path: Path, task: str, expected: Modality) -> str | N
         f"Pass a {expected} volume, or choose a {observed} task -- "
         "list_segmentation_tasks reports the modality of each."
     )
+
+
+#: Voxel size the whole-body models (``total``, ``total_mr``) run at for each speed.
+WHOLE_BODY_RESOLUTION_MM: dict[str, float] = {"standard": 1.5, "fast": 3.0, "fastest": 6.0}
+
+# The whole-body models are trained on body CT/MR covering most of a trunk. A field of
+# view below the first bound in two axes, or below the second in any axis (a small-FOV
+# slab), gives them little context and results less like those reported for the model.
+_BODY_FOV_TWO_AXES_MM: float = 150.0
+_BODY_FOV_ANY_AXIS_MM: float = 100.0
+
+
+def field_of_view_mm(path: Path) -> list[float] | None:
+    """The volume's extent in mm per axis (shape times voxel size), from its header.
+
+    Args:
+        path: Path to a NIfTI volume.
+
+    Returns:
+        Three extents in mm, or ``None`` if the header cannot be read.
+    """
+    try:
+        import nibabel as nib
+
+        load_image = cast(Callable[[str], Any], nib.load)  # pyright: ignore[reportUnknownMemberType]
+        header: Any = load_image(str(path)).header
+        shape: tuple[int, ...] = tuple(int(n) for n in header.get_data_shape())
+        zooms: tuple[float, ...] = tuple(float(z) for z in header.get_zooms())
+    except Exception:
+        return None  # advisory, like the modality check
+    if len(shape) < 3 or len(zooms) < 3:
+        return None
+    return [round(n * z, 1) for n, z in zip(shape[:3], zooms[:3], strict=True)]
+
+
+def small_fov_warning(fov: list[float] | None, task: str) -> str | None:
+    """Warn when a whole-body task gets a volume with a small field of view.
+
+    Args:
+        fov: The volume's extents in mm, from :func:`field_of_view_mm`.
+        task: The task about to run; only ``total`` and ``total_mr`` are checked.
+
+    Returns:
+        A warning string, or ``None``.
+    """
+    if fov is None or task not in ("total", "total_mr"):
+        return None
+    narrow = [v for v in fov if v < _BODY_FOV_TWO_AXES_MM]
+    if len(narrow) < 2 and min(fov) >= _BODY_FOV_ANY_AXIS_MM:
+        return None
+    extent = " x ".join(f"{v:g}" for v in fov)
+    return (
+        f"The image covers only {extent} mm, much less than the body scans task {task!r} "
+        "was trained on. With so little surrounding anatomy (a small-FOV prostate or "
+        "organ slab, say) the segmentation and volumes may be less reliable than usual; "
+        "say so when reporting them."
+    )

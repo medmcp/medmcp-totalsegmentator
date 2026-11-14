@@ -33,6 +33,11 @@ networking denied.
   units and a mismatch with the task's modality comes back as a warning. Running a CT
   task on an MR scan otherwise produces a plausible-looking, meaningless result. It
   warns and never blocks — the header cannot actually confirm modality.
+- Resolution and field of view in the result: `resolution_mm` (1.5 / 3 / 6 mm for the
+  whole-body tasks at `standard` / `fast` / `fastest`) is shown on the report's Model
+  line, and `field_of_view_mm` is read from the header. A `total`/`total_mr` input
+  smaller than 150 mm in two axes or 100 mm in any axis (a small-FOV prostate slab, say)
+  gets a warning that the result may be less reliable.
 - Container image: `Dockerfile` (`FROM medmcp-base`; torch pinned to the cu128 build at
   `2.7.1` so it runs on any host driver >= R570; ~8.8 GiB of weights baked across 42
   datasets), `org.medmcp.stack` label for one-click install. **arm64-clean**: every
