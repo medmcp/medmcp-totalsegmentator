@@ -16,6 +16,7 @@ networking denied.
 
 ### Added
 
+- Every tool declares its effect (read-only, writes new files, destructive) for MedMCP's approval card.
 - `segment_anatomy` — segments anatomical structures on a CT or MR volume across 31
   tasks, from the 117-structure whole-body `total` model to focused models for
   vertebrae, liver segments, lung nodules, head and neck anatomy, and teeth. Writes a

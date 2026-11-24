@@ -1719,7 +1719,7 @@ test = [
 
 [package.metadata]
 requires-dist = [
-    { name = "mcp", specifier = ">=1.9,<2" },
+    { name = "mcp", specifier = ">=1.19,<2" },
     { name = "nibabel", specifier = ">=5" },
     { name = "numpy", specifier = ">=1.24" },
     { name = "torch", specifier = "==2.7.1", index = "https://download.pytorch.org/whl/cu128" },
