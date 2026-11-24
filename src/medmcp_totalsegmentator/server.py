@@ -4,6 +4,7 @@ from importlib.resources import files as _pkg_files
 
 from mcp.server.fastmcp import FastMCP
 
+from medmcp_totalsegmentator.effects import tool_effect
 from medmcp_totalsegmentator.tools.catalog import (
     find_structures,
     list_segmentation_tasks,
@@ -13,10 +14,10 @@ from medmcp_totalsegmentator.tools.segmentation import segment_anatomy
 
 mcp = FastMCP("medmcp-totalsegmentator")
 
-mcp.add_tool(segment_anatomy)
-mcp.add_tool(list_segmentation_tasks)
-mcp.add_tool(list_task_structures)
-mcp.add_tool(find_structures)
+mcp.add_tool(segment_anatomy, **tool_effect("writes_new"))
+mcp.add_tool(list_segmentation_tasks, **tool_effect("read_only"))
+mcp.add_tool(list_task_structures, **tool_effect("read_only"))
+mcp.add_tool(find_structures, **tool_effect("read_only"))
 
 
 def server_config() -> dict[str, object]:
